@@ -31,7 +31,7 @@
         </div>
     </div>
 
-    <div id="sys-settings-modal" class="sys-modal-overlay">
+    <div id="sys-settings-modal" class="sys-modal-overlay" onclick="if(event.target === this) this.style.display='none'">
         <div class="sys-modal">
             <h3 data-i18n="core.settings">系统设置</h3>
             <div style="display: flex; gap: 16px;">
@@ -120,6 +120,10 @@
                 <div id="setup-github-fields" style="display: none;">
                     <input type="text" id="setup-gh-token" class="sys-input" data-i18n="core.gh_token_ph" placeholder="GitHub Token" style="margin-bottom: 10px;">
                     <input type="text" id="setup-gh-repo" class="sys-input" data-i18n="core.gh_repo_ph" placeholder="username/repo" style="margin-bottom: 10px;">
+                    <div style="font-size: 0.8rem; color: var(--sys-text-muted); display: flex; justify-content: space-between; padding: 0 4px; margin-bottom: 16px;">
+                        <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" style="color: var(--sys-primary); text-decoration: none;" data-i18n="core.gh_help_token">👉 获取 Token</a>
+                        <a href="https://github.com/new" target="_blank" style="color: var(--sys-primary); text-decoration: none;" data-i18n="core.gh_help_repo">👉 创建新 Repo</a>
+                    </div>
                 </div>
                 <div id="setup-api-fields" style="display: none;">
                     <input type="text" id="setup-api-url" class="sys-input" data-i18n="core.api_url_ph" placeholder="API URL" disabled>

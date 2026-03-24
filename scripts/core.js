@@ -1451,5 +1451,8 @@ document.getElementById('sys-btn-unlock').onclick = () => SystemCore.handleAuth(
 document.getElementById('sys-pwd').onkeydown = (e) => { if (e.key === 'Enter') SystemCore.handleAuth(); };
 // ⚡ 让确认密码框也能回车触发
 document.getElementById('sys-pwd2').onkeydown = (e) => { if (e.key === 'Enter') SystemCore.handleAuth(); };
+const bindSetupEnter = (e) => { if (e.key === 'Enter') SystemCore.handleBindStorage(); };
+if (document.getElementById('setup-gh-token')) document.getElementById('setup-gh-token').onkeydown = bindSetupEnter;
+if (document.getElementById('setup-gh-repo')) document.getElementById('setup-gh-repo').onkeydown = bindSetupEnter;
 if(document.getElementById('sys-confirm-btn')) { document.getElementById('sys-confirm-btn').onclick = () => { if (SystemUI.confirmCallback) SystemUI.confirmCallback(); SystemUI.closeConfirm(); }; }
 window.addEventListener('DOMContentLoaded', () => SystemCore.boot());

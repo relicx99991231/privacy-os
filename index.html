@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title data-i18n="core.sys_title">Privacy OS</title>
+    
+    <script>
+        (function() {
+            var savedTheme = localStorage.getItem('sys_theme');
+            var isDark = savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+            if (isDark) document.documentElement.setAttribute('data-theme', 'dark');
+        })();
+    </script>
+    
+    <link rel="stylesheet" href="css/core.css">
+    <link rel="stylesheet" href="libs/css/material-symbols.css" />
+    <script src="libs/scripts/pako.min.js"></script>
+</head>
+<body>
+    <div id="sys-toast" class="sys-toast"></div>
+
+    <div id="sys-confirm-modal" class="sys-modal-overlay" style="z-index: 10001;">
+        <div class="sys-modal" style="max-width: 360px; padding: 30px;">
+            <h3 data-i18n="core.confirm_title" style="margin-bottom: 16px; font-size: 1.25rem;">操作确认</h3>
+            <div id="sys-confirm-msg" style="color: var(--sys-text-muted); font-size: 1rem; line-height: 1.6; margin-bottom: 28px;"></div>
+            <div class="modal-actions" style="margin-top: 0; justify-content: flex-end;">
+                <button class="sys-btn ghost" onclick="SystemUI.closeConfirm()" data-i18n="core.cancel" style="width: auto; padding: 10px 20px;">取消</button>
+                <button class="sys-btn primary" id="sys-confirm-btn" style="width: auto; padding: 10px 20px; background: var(--sys-danger); color: var(--sys-on-danger);">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sys-settings-modal" class="sys-modal-overlay">
+        <div class="sys-modal">
+            <h3 data-i18n="core.settings">系统设置</h3>
+            <div style="display: flex; gap: 16px;">
+                <div class="form-group" style="flex: 1;">
+                    <label data-i18n="core.language">语言 / Language</label>
+                    <select id="sys-lang-select" class="sys-input" style="padding: 12px 16px; margin-bottom: 0;">
+                        <option value="zh">简体中文</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                    <label data-i18n="core.auto_lock">自动锁定时间</label>
+                    <select id="sys-auto-lock-select" class="sys-input" style="padding: 12px 16px; margin-bottom: 0;">
+                        <option value="0" data-i18n="core.lock_never">不自动锁定</option>
+                        <option value="1" data-i18n="core.lock_1m">1 分钟</option>
+                        <option value="3" data-i18n="core.lock_3m">3 分钟</option>
+                        <option value="5" data-i18n="core.lock_5m">5 分钟</option>
+                        <option value="10" data-i18n="core.lock_10m">10 分钟</option>
+                        <option value="30" data-i18n="core.lock_30m">30 分钟</option>
+                        <option value="60" data-i18n="core.lock_60m">60 分钟</option>
+                        <option value="120" data-i18n="core.lock_120m">120 分钟</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 24px; border-top: 1px solid var(--sys-border); padding-top: 16px; text-align: left;">
+                <label data-i18n="core.settings_storage">同步与存储引擎配置</label>
+                <label style="display:flex; align-items:center; gap:8px; margin-top:16px; cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" id="set-chk-local" onchange="SystemUI.toggleSettingsFields()"> 
+                    <span class="material-symbols-rounded" style="color: var(--sys-primary);">folder</span> 
+                    <span data-i18n="core.st_local">本地文件夹同步</span>
+                </label>
+                <div id="set-local-fields" style="display:none; margin-top:8px;">
+                    <div id="set-local-dir-name" style="font-size: 0.85rem; color: var(--sys-text); margin-bottom: 12px; font-weight: 500; word-break: break-all;"></div>
+                    <button class="sys-btn ghost" onclick="SystemCore.bindLocalInSettings()" style="padding:10px; border: 1px solid var(--sys-border); font-size: 0.9rem;" data-i18n="core.btn_rebind_local">重新选择/授权本地目录</button>
+                </div>
+                
+                <label style="display:flex; align-items:center; gap:8px; margin-top:16px; cursor: pointer; font-weight: 500;">
+                    <input type="checkbox" id="set-chk-github" onchange="SystemUI.toggleSettingsFields()"> 
+                    <span class="material-symbols-rounded" style="color: var(--sys-primary);">cloud</span> 
+                    <span data-i18n="core.st_github">GitHub Repo 同步</span>
+                </label>
+                <div id="set-github-fields" style="display:none; margin-top:8px;">
+                    <input type="text" id="set-gh-token" class="sys-input" style="padding: 12px; margin-bottom: 10px;" data-i18n="core.gh_token_ph" placeholder="GitHub Token">
+                    <input type="text" id="set-gh-repo" class="sys-input" style="padding: 12px; margin-bottom: 10px;" data-i18n="core.gh_repo_ph" placeholder="username/repo">
+                    <div style="font-size: 0.8rem; color: var(--sys-text-muted); display: flex; justify-content: space-between; padding: 0 4px;">
+                        <a href="https://github.com/settings/tokens/new?scopes=repo" target="_blank" style="color: var(--sys-primary); text-decoration: none;" data-i18n="core.gh_help_token">👉 获取 Token</a>
+                        <a href="https://github.com/new" target="_blank" style="color: var(--sys-primary); text-decoration: none;" data-i18n="core.gh_help_repo">👉 创建新 Repo</a>
+                    </div>
+                </div>
+                
+                <label style="display:flex; align-items:center; gap:8px; margin-top:16px; font-weight: 500; opacity: 0.5; cursor: not-allowed;">
+                    <input type="checkbox" id="set-chk-api" onchange="SystemUI.toggleSettingsFields()" disabled> 
+                    <span class="material-symbols-rounded" style="color: var(--sys-primary);">api</span> 
+                    <span data-i18n="core.st_api">Custom API 同步 (开发中)</span>
+                </label>
+                <div id="set-api-fields" style="display:none; margin-top:8px;">
+                    <input type="text" id="set-api-url" class="sys-input" style="padding: 12px; margin-bottom: 10px;" data-i18n="core.api_url_ph" placeholder="API URL" disabled>
+                    <input type="text" id="set-api-token" class="sys-input" style="padding: 12px; margin-bottom: 0;" data-i18n="core.api_token_ph" placeholder="Auth Token (Optional)" disabled>
+                </div>
+                
+                <button class="sys-btn ghost" onclick="SystemCore.switchDataSource()" style="margin-top: 32px; border: 1px dashed var(--sys-danger); color: var(--sys-danger);">
+                    <span class="material-symbols-rounded" style="font-size: 1.1rem;">warning</span>
+                    <span data-i18n="core.btn_switch_source">切换启动数据源</span>
+                </button>
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button class="sys-btn ghost" onclick="document.getElementById('sys-settings-modal').style.display='none'" data-i18n="core.cancel">取消</button>
+                <button class="sys-btn primary" onclick="SystemCore.saveSettings()" data-i18n="core.save">保存设置</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sys-lock-screen" class="sys-screen active">
+        <div class="lock-container">
+            <h2 id="lock-title" data-i18n="core.sys_init">系统初始化</h2>
+            <p id="lock-desc" class="sys-desc" data-i18n="core.sys_check_env">正在检查核心运行环境...</p>
+            
+            <div id="lock-setup-area" style="display: none; text-align: left;">
+                <label data-i18n="core.sys_setup_boot">选择启动数据源：</label>
+                <select id="setup-storage-type" class="sys-input" onchange="SystemUI.toggleSetupFields()">
+                    <option value="local" data-i18n="core.storage_local">本地文件夹 (仅限电脑端)</option>
+                    <option value="github" data-i18n="core.storage_github">GitHub Repo (跨平台同步)</option>
+                    <option value="api" data-i18n="core.storage_api" disabled>Custom API (私有服务器 - 开发中)</option>
+                </select>
+                <div id="setup-github-fields" style="display: none;">
+                    <input type="text" id="setup-gh-token" class="sys-input" data-i18n="core.gh_token_ph" placeholder="GitHub Token" style="margin-bottom: 10px;">
+                    <input type="text" id="setup-gh-repo" class="sys-input" data-i18n="core.gh_repo_ph" placeholder="username/repo" style="margin-bottom: 10px;">
+                </div>
+                <div id="setup-api-fields" style="display: none;">
+                    <input type="text" id="setup-api-url" class="sys-input" data-i18n="core.api_url_ph" placeholder="API URL" disabled>
+                    <input type="text" id="setup-api-token" class="sys-input" data-i18n="core.api_token_ph" placeholder="Token" disabled>
+                </div>
+                <button id="sys-btn-bind" class="sys-btn primary" data-i18n="core.btn_mount_local">挂载数据源</button>
+            </div>
+
+            <div id="lock-input-area" style="display: none;">
+                <div id="sys-pwd-tip" style="display: none; background: rgba(11, 87, 208, 0.08); border-left: 3px solid var(--sys-primary); padding: 12px; margin-bottom: 16px; text-align: left; font-size: 0.85rem; color: var(--sys-text-muted); line-height: 1.5; white-space: pre-wrap;" data-i18n="core.pwd_tip"></div>
+                <input type="password" id="sys-pwd" class="sys-input" data-i18n="core.pwd_placeholder" placeholder="请输入密码" autocomplete="new-password">
+                <input type="password" id="sys-pwd2" class="sys-input" data-i18n="core.pwd_confirm" placeholder="确认主密码" autocomplete="new-password" style="display: none;">
+                <button id="sys-btn-unlock" class="sys-btn primary" data-i18n="core.btn_unlock">解密并唤醒</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="sys-desktop" class="sys-screen" style="display: none;">
+        <div id="sys-sidebar-overlay" class="sys-sidebar-overlay" onclick="SystemUI.toggleSidebar(true)"></div>
+
+        <div id="sys-dock" class="sys-dock">
+            <div class="dock-header">
+                <button class="sys-icon-btn desktop-logo" onclick="SystemUI.toggleDesktopDock()" title="菜单">
+                    <span class="material-symbols-rounded">menu</span>
+                </button>
+                <span class="sys-title-text" data-i18n="core.dock_header">Privacy OS</span>
+            </div>
+            
+            <div id="dock-plugins-list" class="dock-list"></div>
+            
+            <div class="dock-footer">
+                <button class="foot-btn" onclick="SystemUI.toggleTheme()" title="切换主题">
+                    <span class="material-symbols-rounded" id="icon-theme-toggle">dark_mode</span>
+                    <span class="foot-text" data-i18n="core.theme">主题设置</span>
+                </button>
+                <button class="foot-btn" onclick="SystemUI.openSettings()" title="系统设置">
+                    <span class="material-symbols-rounded">settings</span>
+                    <span class="foot-text" data-i18n="core.settings">系统设置</span>
+                </button>
+                <button class="foot-btn lock-btn" onclick="SystemCore.lock()" title="锁定系统">
+                    <span class="material-symbols-rounded">lock</span>
+                    <span class="foot-text" data-i18n="core.btn_lock">锁定系统</span>
+                </button>
+            </div>
+        </div>
+        
+        <div id="sys-workspace" class="sys-workspace">
+            <div class="sys-top-bar" id="sys-top-bar">
+                <div class="top-bar-left">
+                    <button class="sys-icon-btn top-menu-btn" onclick="SystemUI.toggleSidebar()">
+                        <span class="material-symbols-rounded">menu</span>
+                    </button>
+                    <span class="top-bar-title" id="sys-app-title" data-i18n="core.dock_header">Privacy OS</span>
+                </div>
+                <div class="top-bar-actions" id="sys-app-actions"></div>
+            </div>
+
+            <div id="sys-empty-state" class="sys-empty-state" data-i18n="core.empty_state">请从侧边栏选择应用</div>
+            <div id="sys-plugin-wrapper" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0;"></div>
+        </div>
+    </div>
+
+    <script src="scripts/i18n.core.js"></script>
+    <script src="plugins/plugins.js"></script>
+    <script src="scripts/core.js"></script>
+</body>
+</html>

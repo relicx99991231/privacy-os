@@ -1,0 +1,116 @@
+/* ==========================================================================
+   App Authenticator Style - 终极双栏与网格
+   ========================================================================== */
+
+.auth-layout { display: flex; height: 100%; width: 100%; background: var(--sys-bg); overflow: hidden; position: relative; min-height: 0; min-width: 0; }
+
+/* ================= 侧边栏 (分组管理) ================= */
+.auth-sidebar { 
+    width: 260px; display: flex; flex-direction: column; 
+    background: var(--sys-surface); border-right: 1px solid var(--sys-border); 
+    transition: all 0.3s ease; box-sizing: border-box; z-index: 10; flex-shrink: 0;
+}
+
+.auth-sidebar-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; border-bottom: 1px solid var(--sys-border);
+    color: var(--sys-text-muted); font-size: 0.85rem; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+    flex-shrink: 0;
+}
+
+.auth-sidebar-list { flex: 1; overflow-y: auto; padding: 12px 0; min-height: 0; }
+
+.auth-cat-item {
+    display: flex; align-items: center; padding: 10px 20px; cursor: pointer;
+    color: var(--sys-text-muted); font-size: 0.95rem; user-select: none;
+    transition: all 0.15s; border-left: 3px solid transparent; gap: 12px; position: relative;
+}
+.auth-cat-item:hover { background: var(--sys-surface-hover); color: var(--sys-text); }
+.auth-cat-item.active { background: rgba(11, 87, 208, 0.08); color: var(--sys-primary); border-left-color: var(--sys-primary); font-weight: 500; }
+html[data-theme="dark"] .auth-cat-item.active { background: rgba(168, 199, 250, 0.12); }
+
+.auth-cat-icon { font-size: 1.2rem; opacity: 0.8; flex-shrink: 0; }
+.auth-cat-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-cat-count { font-size: 0.8rem; background: var(--sys-border); padding: 2px 8px; border-radius: 12px; opacity: 0.8; }
+
+/* 侧边栏 Hover 呼出管理菜单按钮 */
+.auth-cat-more { display: none; position: absolute; right: 12px; padding: 4px; border-radius: 6px; background: var(--sys-surface); box-shadow: var(--sys-shadow); color: var(--sys-text); }
+.auth-cat-item:hover .auth-cat-more { display: flex; }
+.auth-cat-more:hover { background: var(--sys-surface-hover); color: var(--sys-primary); }
+
+/* ================= 右侧主网格 ================= */
+.auth-main-wrapper { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; min-height: 0; min-width: 0; }
+.auth-grid-scroll { flex: 1; overflow-y: auto; padding: 32px 40px; box-sizing: border-box; position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
+
+.auth-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 24px; align-content: flex-start; }
+
+.auth-card { background: var(--sys-surface); border: 1px solid var(--sys-border); border-radius: var(--sys-radius-modal); padding: 24px; position: relative; transition: all 0.2s cubic-bezier(0.2, 0, 0, 1); display: flex; flex-direction: column; }
+.auth-card:hover { box-shadow: var(--sys-shadow); border-color: var(--sys-primary); transform: translateY(-2px); }
+
+.auth-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.auth-card-name { font-size: 1.1rem; font-weight: 500; color: var(--sys-text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 极简卡片菜单按钮 */
+.auth-icon-btn { background: transparent; border: none; color: var(--sys-text-muted); opacity: 0.4; cursor: pointer; border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; padding: 0; flex-shrink: 0; }
+.auth-card:hover .auth-icon-btn { opacity: 1; }
+.auth-icon-btn:hover { background: var(--sys-surface-hover); color: var(--sys-text); }
+
+.auth-card-row { display: flex; justify-content: space-between; align-items: center; }
+.auth-code { font-size: 2.2rem; font-weight: bold; color: var(--sys-primary); letter-spacing: 4px; cursor: pointer; transition: opacity 0.2s, color 0.3s; font-family: monospace; }
+.auth-code:active { opacity: 0.5; }
+.auth-code.warning { color: var(--sys-danger); }
+
+.auth-progress { width: 44px; height: 44px; position: relative; flex-shrink: 0; }
+.auth-circle-svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+.auth-circle-bg { fill: none; stroke: var(--sys-surface-hover); stroke-width: 4; }
+.auth-circle-bar { fill: none; stroke: var(--sys-primary); stroke-width: 4; stroke-dasharray: 100.53; stroke-dashoffset: 0; transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+.auth-circle-bar.warning { stroke: var(--sys-danger); }
+
+#auth-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--sys-text-muted); font-weight: 500; font-size: 1.05rem; height: 100%; }
+
+/* ================= 浮动菜单 (Dropdown) ================= */
+.auth-dropdown-menu {
+    position: absolute; background: var(--sys-surface); border: 1px solid var(--sys-border);
+    box-shadow: var(--sys-shadow-modal); border-radius: 12px; z-index: 1000;
+    display: none; flex-direction: column; padding: 6px 0; min-width: 160px;
+}
+.auth-dropdown-item { padding: 10px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.9rem; color: var(--sys-text); transition: 0.15s; }
+.auth-dropdown-item:hover { background: var(--sys-surface-hover); color: var(--sys-primary); }
+.auth-dropdown-item.danger:hover { color: var(--sys-danger); background: var(--sys-danger-bg); }
+
+/* ================= 移动端适配 (Bottom Sheet 与 FAB) ================= */
+.auth-fab { display: none; }
+
+.auth-bottom-sheet-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); align-items: flex-end; animation: fadeIn 0.2s ease-out forwards; }
+.auth-bottom-sheet { background: var(--sys-surface); width: 100%; border-radius: 24px 24px 0 0; padding: 16px 20px 32px; box-sizing: border-box; animation: slideUpSheet 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.05) forwards; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 -4px 24px rgba(0,0,0,0.1); max-height: 80vh; overflow-y: auto; }
+.auth-bs-title { text-align: center; color: var(--sys-text-muted); font-size: 0.85rem; padding-bottom: 12px; border-bottom: 1px solid var(--sys-border); margin-bottom: 8px; font-weight: 500; }
+.auth-bs-btn { width: 100%; padding: 16px; background: transparent; border: none; border-radius: 16px; color: var(--sys-text); font-size: 1.05rem; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s; font-weight: 500; }
+.auth-bs-btn:active { background: var(--sys-surface-hover); }
+.auth-bs-btn .left { display: flex; align-items: center; gap: 16px; }
+.auth-bs-btn .material-symbols-rounded { font-size: 1.4rem; color: var(--sys-text-muted); }
+.auth-bs-btn.active { color: var(--sys-primary); background: rgba(11, 87, 208, 0.05); }
+.auth-bs-btn.active .material-symbols-rounded { color: var(--sys-primary); }
+.auth-bs-btn.danger { color: var(--sys-danger); }
+.auth-bs-btn.danger .material-symbols-rounded { color: var(--sys-danger); }
+
+/* 隐藏系统顶栏的添加按钮(仅限手机) */
+@media (max-width: 768px) {
+    .auth-top-add-btn { display: none !important; }
+}
+
+@media (max-width: 768px) {
+    .auth-sidebar { display: none; } 
+    .auth-grid-scroll { padding: 20px; } 
+    .auth-grid { grid-template-columns: 1fr; gap: 16px; }
+    .auth-code { font-size: 2.4rem; }
+    
+    /* 手机端 FAB (浮动加号) */
+    .auth-fab { 
+        display: flex; position: absolute; bottom: 32px; right: 24px; width: 56px; height: 56px; 
+        border-radius: 28px; background: var(--sys-primary); color: var(--sys-on-primary); 
+        box-shadow: 0 4px 12px rgba(11, 87, 208, 0.4); border: none; align-items: center; justify-content: center; 
+        cursor: pointer; z-index: 100; transition: transform 0.2s;
+    }
+    .auth-fab:active { transform: scale(0.9); }
+    .auth-fab .material-symbols-rounded { font-size: 2rem; color: #fff; }
+}

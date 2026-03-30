@@ -32,7 +32,14 @@ I18nManager.registerPluginDict('app_workspace', {
         'sync_up_to_date': '已是最新',
         'sync_start': '正在同步工作区...',
         'sync_success': '同步成功',
-        'sync_reject': '同步被拒绝'
+        'sync_reject': '同步被拒绝',
+
+        // ⚡ 新增功能词条
+        'move': '移动到',
+        'target_folder': '选择目标目录',
+        'import': '导入本地文件夹',
+        'export': '导出到本地',
+        'cannot_move_root': '不能移动根目录'
     },
     'en': {
         'app_name': 'Workspace', 
@@ -67,6 +74,13 @@ I18nManager.registerPluginDict('app_workspace', {
         'sync_up_to_date': 'Up to date',
         'sync_start': 'Syncing workspace...',
         'sync_success': 'Sync successful',
-        'sync_reject': 'Sync rejected'
+        'sync_reject': 'Sync rejected',
+
+        // ⚡ Newly added functional translation entries
+        'move': 'Move To',
+        'target_folder': 'Select Target Folder',
+        'import': 'Import Folder',
+        'export': 'Export to Local',
+        'cannot_move_root': 'Cannot move the root directory'
     }
 });

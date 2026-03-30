@@ -1,5 +1,5 @@
 /* ==========================================================================
-   App Workspace Style - IDE / VS Code 风格 (终极纯净版)
+   App Workspace Style - Monaco Editor & VS Code Tree 纯净版
    ========================================================================== */
 
 .workspace-layout { display: flex; height: 100%; width: 100%; background: var(--sys-bg); overflow: hidden; position: relative; }
@@ -13,7 +13,7 @@
 
 .ws-sidebar-toolbar {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 16px; min-height: 56px; box-sizing: border-box;
+    padding: 10px 8px; min-height: 56px; box-sizing: border-box;
     border-bottom: 1px solid var(--sys-border); background: var(--sys-surface);
 }
 
@@ -28,23 +28,35 @@
 .ws-toolbar-btn.danger:hover { background: var(--sys-danger-bg); color: var(--sys-danger); }
 .ws-toolbar-btn.disabled { opacity: 0.25; pointer-events: none; }
 
-.ws-tree-container { flex: 1; overflow-y: auto; padding: 8px 0; min-height: 100%; }
+/* ================= 目录树 (VS Code 风格重构) ================= */
+.ws-tree-container { flex: 1; overflow-y: auto; padding: 8px 0; min-height: 100%; overflow-x: hidden; }
 
 .ws-tree-item {
-    display: flex; align-items: center; padding: 4px 16px; cursor: pointer;
-    color: var(--sys-text-muted); font-size: 0.9rem; user-select: none;
-    transition: background 0.1s; border: 1px solid transparent;
+    display: flex; align-items: center; 
+    padding: 2px 0; /* 移除左右默认 padding，依靠 JS 动态缩进 */
+    cursor: pointer;
+    color: var(--sys-text-muted); 
+    font-size: 0.85rem; 
+    user-select: none;
+    transition: none; /* 移除延迟，实现 IDE 般干脆的点击反馈 */
+    height: 26px; /* 紧凑行高 */
+    box-sizing: border-box;
+    width: 100%;
 }
 .ws-tree-item:hover { background: var(--sys-surface-hover); color: var(--sys-text); }
-.ws-tree-item.active { background: rgba(11, 87, 208, 0.1); color: var(--sys-primary); }
+.ws-tree-item.active { background: rgba(11, 87, 208, 0.15); color: var(--sys-primary); }
 html[data-theme="dark"] .ws-tree-item.active { background: rgba(168, 199, 250, 0.15); color: var(--sys-primary); }
 
-.ws-tree-chevron { font-size: 1.2rem; opacity: 0.6; transition: transform 0.2s; margin-right: 2px; flex-shrink: 0; color: inherit; }
+.ws-tree-chevron { 
+    font-size: 1.1rem; opacity: 0.5; transition: transform 0.1s; 
+    margin-right: 2px; flex-shrink: 0; color: inherit; width: 20px; text-align: center;
+}
+.ws-tree-chevron:hover { opacity: 1; background: rgba(128,128,128,0.2); border-radius: 4px; }
 .ws-tree-chevron.expanded { transform: rotate(90deg); }
-.ws-tree-chevron-placeholder { width: 1.2rem; margin-right: 2px; display: inline-block; flex-shrink: 0; }
+.ws-tree-chevron-placeholder { width: 22px; display: inline-block; flex-shrink: 0; }
 
-.ws-tree-icon { font-size: 1.1rem; margin-right: 6px; opacity: 0.8; flex-shrink: 0; color: inherit;}
-.ws-tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-tree-icon { font-size: 1.05rem; margin-right: 6px; opacity: 0.8; flex-shrink: 0; color: inherit;}
+.ws-tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 26px; }
 
 .ws-dirty-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--sys-danger); margin-left: 6px; vertical-align: middle; box-shadow: 0 0 4px var(--sys-danger); opacity: 0.9; }
 
@@ -105,61 +117,16 @@ html[data-theme="dark"] .ws-tabs-dropdown-item.active { background: rgba(168, 19
 .ws-path-item:hover { color: var(--sys-primary); }
 .ws-path-separator { margin: 0 4px; opacity: 0.4; font-size: 1.1rem; display: inline-flex; align-items: center; }
 
-/* ================= 带行号的纯净文本编辑区 ================= */
+/* ================= 纯净版编辑区容器 ================= */
 .ws-editor { flex: 1; display: none; flex-direction: column; overflow: hidden; padding: 0; min-height: 0; min-width: 0; }
 .ws-editor.active { display: flex; }
 #ws-empty { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; color: var(--sys-text-muted); }
-
-.ws-editor-core-container {
-    flex: 1; display: flex; position: relative; 
-    overflow: hidden; background: var(--sys-bg);
-    width: 100%; min-height: 0; min-width: 0;
-}
-
-.ws-content-input { 
-    flex: 1; 
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 14px !important; 
-    line-height: 22px !important; 
-    padding: 0 16px 16px 60px !important; /* 顶部补白归零 */
-    border: none !important; outline: none !important; 
-    background-color: transparent !important; color: var(--sys-text); resize: none; 
-    box-shadow: none !important; border-radius: 0 !important;
-    white-space: pre !important; 
-    overflow-wrap: normal !important;
-    overflow-x: auto !important;
-    z-index: 2; position: relative; min-height: 0; min-width: 0;
-}
-
-.ws-line-numbers {
-    position: absolute;
-    top: 0; left: 0; width: 48px;
-    padding: 0 12px 0 0; 
-    text-align: right;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 14px;
-    line-height: 22px;
-    color: var(--sys-text-muted);
-    opacity: 0.45;
-    user-select: none; pointer-events: none;
-    z-index: 3;
-}
-
-.ws-line-highlight {
-    position: absolute;
-    left: 0; right: 0;
-    height: 22px; 
-    background: rgba(11, 87, 208, 0.08); 
-    border-left: 2px solid var(--sys-primary); 
-    z-index: 1; pointer-events: none; display: none; width: 100%;
-}
-html[data-theme="dark"] .ws-line-highlight { background: rgba(255, 255, 255, 0.06); border-left-color: #8ab4f8; }
 
 .ws-mobile-back-btn { display: none; }
 
 /* ⚡ 移动端底部菜单 (Bottom Sheet) 样式 */
 .ws-bottom-sheet-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); align-items: flex-end; animation: fadeIn 0.2s ease-out forwards; }
-.ws-bottom-sheet { background: var(--sys-surface); width: 100%; border-radius: 24px 24px 0 0; padding: 20px 20px 32px; box-sizing: border-box; animation: slideUpSheet 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.05) forwards; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 -4px 24px rgba(0,0,0,0.1); }
+.ws-bottom-sheet { background: var(--sys-surface); width: 100%; border-radius: 24px 24px 0 0; padding: 20px 20px 32px; box-sizing: border-box; animation: slideUpSheet 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.05) forwards; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 -4px 24px rgba(0,0,0,0.1); max-height: 85vh; overflow-y: auto; }
 .ws-bottom-sheet-title { padding: 0 12px 16px; font-size: 0.9rem; color: var(--sys-text-muted); border-bottom: 1px solid var(--sys-border); margin-bottom: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ws-sheet-btn { width: 100%; padding: 16px; background: transparent; border: none; border-radius: 16px; color: var(--sys-text); font-size: 1.05rem; display: flex; align-items: center; gap: 16px; cursor: pointer; transition: background 0.2s; font-weight: 500; }
 .ws-sheet-btn:active { background: var(--sys-surface-hover); }
@@ -168,6 +135,38 @@ html[data-theme="dark"] .ws-line-highlight { background: rgba(255, 255, 255, 0.0
 .ws-sheet-btn.danger { color: var(--sys-danger); }
 .ws-sheet-btn.danger .material-symbols-rounded { color: var(--sys-danger); }
 @keyframes slideUpSheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+/* ================= 全局右键菜单 (Context Menu) ================= */
+.ws-context-menu {
+    position: fixed;
+    z-index: 20000;
+    background: var(--sys-surface);
+    border: 1px solid var(--sys-border);
+    border-radius: 8px;
+    box-shadow: var(--sys-shadow-modal);
+    padding: 6px 0;
+    min-width: 180px;
+    display: none;
+    flex-direction: column;
+    font-family: inherit;
+}
+.ws-context-menu-item {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    color: var(--sys-text);
+    font-size: 0.9rem;
+    transition: background 0.15s;
+    user-select: none;
+}
+.ws-context-menu-item .material-symbols-rounded { font-size: 1.1rem; opacity: 0.7; }
+.ws-context-menu-item:hover { background: var(--sys-surface-hover); color: var(--sys-primary); }
+.ws-context-menu-item:hover .material-symbols-rounded { opacity: 1; color: var(--sys-primary); }
+.ws-context-menu-item.danger:hover { color: var(--sys-danger); background: var(--sys-danger-bg); }
+.ws-context-menu-item.danger:hover .material-symbols-rounded { color: var(--sys-danger); }
+.ws-context-menu-divider { height: 1px; background: var(--sys-border); margin: 4px 0; }
 
 @media (max-width: 768px) {
     .ws-tab-item { padding: 10px 16px; } 
@@ -184,11 +183,45 @@ html[data-theme="dark"] .ws-line-highlight { background: rgba(255, 255, 255, 0.0
     .ws-mobile-back-btn:hover { background: var(--sys-surface-hover); color: var(--sys-text); }
     .ws-mobile-back-btn .material-symbols-rounded { font-size: 1.2rem; }
     
-    /* ⚡ 隐藏侧边栏的顶部工具栏，让界面更加纯净 */
     .ws-sidebar-toolbar { display: none !important; }
     
     .ws-sidebar { width: 100%; border: none; }
     .ws-editor-wrapper { display: none; }
     .workspace-layout.is-editing .ws-sidebar { display: none; }
     .workspace-layout.is-editing .ws-editor-wrapper { display: flex !important; width: 100%; }
+}
+/* ================= Vditor 专属排版与宽窄屏切换 ================= */
+.vditor-ir pre.vditor-reset,
+.vditor-wysiwyg pre.vditor-reset,
+.vditor-sv .vditor-reset {
+    margin: 0 auto !important; 
+    /* ⚡ 加上一个弹性动画，宽窄切换时会非常丝滑 */
+    transition: max-width 0.1s cubic-bezier(0.4, 0, 0.2, 1), padding 0.1s ease !important; 
+}
+
+/* 💻 宽屏模式：彻底解除限制，撑满屏幕 */
+.workspace-layout.is-md-wide .vditor-ir pre.vditor-reset,
+.workspace-layout.is-md-wide .vditor-wysiwyg pre.vditor-reset,
+.workspace-layout.is-md-wide .vditor-sv .vditor-reset {
+    padding-left: 40px !important;
+    padding-right: 40px !important;
+}
+
+/* 📖 窄屏模式：默认的阅读舒适宽度 (取消两侧 padding) */
+.workspace-layout:not(.is-md-wide) .vditor-ir pre.vditor-reset,
+.workspace-layout:not(.is-md-wide) .vditor-wysiwyg pre.vditor-reset,
+.workspace-layout:not(.is-md-wide) .vditor-sv .vditor-reset {
+}
+
+/* Vditor 滚动条美化 */
+.vditor-ir::-webkit-scrollbar { width: 10px; height: 10px; }
+.vditor-ir::-webkit-scrollbar-thumb { background-color: rgba(128, 128, 128, 0.2); border-radius: 5px; }
+.vditor-ir::-webkit-scrollbar-thumb:hover { background-color: rgba(128, 128, 128, 0.4); }
+
+/* ================= 修复 Vditor 原生全屏模式 (Zen Mode 沉浸模式) ================= */
+
+/* 1. 强制拔高层级，让它跳出工作区，彻底盖住左侧系统侧边栏和顶部导航 */
+.vditor.vditor--fullscreen {
+    z-index: 99999 !important; 
+    background-color: var(--sys-bg) !important;
 }

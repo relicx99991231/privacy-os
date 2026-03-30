@@ -36,7 +36,7 @@ const I18nManager = {
             'msg_copied': '已复制到剪贴板',
 
             // ==========================================================
-            // 2. 操作系统界面与状态 (System UI & Status)
+            // 2. 操作系统界面与基础状态 (System UI & Status)
             // ==========================================================
             'sys_title': '隐私系统', 
             'dock_header': 'Privacy OS', 
@@ -46,9 +46,10 @@ const I18nManager = {
             'theme': '主题设置', 
             'language': '显示语言 / Language', 
             'no_plugins': '暂无可用插件', 
+            'auto_saved': '✨ 已安全存入本地工作台 (Auto-Saved)',
 
             // ==========================================================
-            // 3. 密码与安全机制 (Password & Security)
+            // 3. 密码、安全机制与锁屏 (Security & Lock)
             // ==========================================================
             'sys_locked': '系统已锁定', 
             'sys_locked_desc': '请输入主密码解密数据。',
@@ -59,10 +60,7 @@ const I18nManager = {
             'pwd_empty': '密码不可为空', 
             'pwd_short': '密码太短，至少需要4位', 
             'pwd_mismatch': '两次输入的密码不一致！',
-            
-            // ⚡ 修改：使用更直观的例子，让用户一眼看懂模块化拼接法
             'pwd_tip': '💡 密码安全与加密白皮书\n\n【建议规范】：请使用 32 位以上的高强度主密码（大/小写字母+数字+特殊符号）。\n\n【记忆技巧】：推荐使用「模块化拼接法」。将一段易记的基础模块（如 MySecret2026），结合不同符号重复拼接。例如：MySecret2026!MySecret2026@MySecret2026#（长度达39位）\n\n【系统防御机制】：本系统底层采用双轨 PBKDF2（120万次 SHA-256 哈希迭代）派生双层 AES-256-GCM 密钥。在此极高计算延迟的焦油坑防御下，即便黑客完全知晓您的拼接逻辑，穷举 30+ 位长度密码所需的时间也远超宇宙寿命。纯暴力破解在物理学上绝无可能。',
-            
             'auth_success': '验证通过',
             
             'auto_lock': '自动锁定时间',
@@ -76,14 +74,14 @@ const I18nManager = {
             'lock_120m': '120 分钟',
 
             // ==========================================================
-            // 4. 设置与同步引擎配置 (Settings & Storage Config)
+            // 4. 设置与存储引擎配置 (Settings & Storage)
             // ==========================================================
             'settings': '系统设置', 
             'settings_storage': '同步与存储引擎配置', 
             'sys_uninitialized': '尚未配置启动源，请选择数据挂载方式。', 
             'sys_setup_boot': '选择启动数据源：', 
             
-            'st_local': '本地文件夹同步', 
+            'st_local': '启用本地文件夹同步', 
             'st_github': 'GitHub Repo 同步', 
             'st_api': 'Custom API 同步 (开发中)',
             'storage_local': '本地文件夹 (仅限电脑端)', 
@@ -91,7 +89,7 @@ const I18nManager = {
             'storage_api': 'Custom API (私有服务器 - 开发中)',
             
             'current_dir': '当前绑定目录', 
-            'no_dir_bound': '尚未绑定任何本地目录',
+            'no_dir_bound': '尚未绑定本地目录',
             'gh_token_ph': 'GitHub Token (repo权限)', 
             'gh_repo_ph': 'Repo格式: username/repo', 
             'gh_help_token': '👉 获取 Token', 
@@ -104,12 +102,22 @@ const I18nManager = {
             'btn_unlock': '解密并唤醒', 
             'btn_create': '加密并初始化',
             'btn_lock': '锁定系统', 
-            'btn_rebind_local': '重新选择/授权本地目录', 
+            'btn_rebind_local': '重新选择/授权', 
             'btn_switch_source': '切换启动数据源',
+            
+            'confirm_title': '操作确认', 
+            'confirm_switch': '确定要清空本地配置并重新选择启动数据源吗？系统将重启。',
 
             // ==========================================================
-            // 5. 核心执行逻辑与加载提示 (Core Sync & Execution)
+            // 5. 核心启动与同步加载提示 (Sync & Execution)
             // ==========================================================
+            'sync_detect_lineage': '正在检测数据源血统...',
+            'sync_format_confirm': '未检测到系统数据。\n\n系统将格式化此目录（物理清空所有文件），并将当前工作台数据同步至此。是否继续？',
+            'sync_formatting': '正在格式化目录并写入数据...',
+            'sync_mount_success': '目录挂载成功！数据正在后台同步。',
+            'sync_format_failed': '格式化目录失败，请检查文件占用或权限：{0}',
+            'sync_mount_history_success': '历史备份挂载成功！后台正在静默恢复您的文件...',
+
             'starting': '启动 {0} ...', 
             'loading_plugin': '正在加载 {0}...',
             'load_failed': '加载失败',
@@ -125,9 +133,22 @@ const I18nManager = {
             'sync_pulling_list': '正在拉取云端应用数据...',
             'sync_pulling_file': '正在从云端读取文件内容...',
             'save_failed': '保存失败',
+            
+            'boot_waking_base': '极速唤醒底层数据: [{0}]...',
+            'boot_warming_editor': '预热核心编辑器引擎 (Monaco & Vditor)...',
+            'boot_vfs_align': '执行 VFS 极速状态对齐 (0 IO 阻塞)...',
+            'boot_preloading_plugins': '后台静默预热应用插件 (Eager Load)...',
+            'boot_ready': '系统核心完全就绪！',
+            'boot_failed': '系统引导失败: {0}',
+            'boot_connecting': '正在连接主数据源进行安全终极校验...',
+
+            'sync_pulling_diff': '拉取云端代码用于对比...',
+            'sync_exporting_local': '正在镜像导出到本地...',
+            'sync_importing_files': '正在导入文件...',
+            'sync_importing_dir': '正在导入目录 [{0}]...',
 
             // ==========================================================
-            // 6. 错误处理与冲突提示 (Errors & Conflicts)
+            // 6. 错误处理与异常警报 (Errors & Exceptions)
             // ==========================================================
             'error_title': '系统错误',
             'sys_exception': '系统异常: {0}',
@@ -140,30 +161,63 @@ const I18nManager = {
             'err_api_incomplete': '请填写 API 根地址',
             'no_cloud_configured': '操作被拒绝：您尚未在设置中启用任何云端同步引擎。',
             'gh_err_not_found': '找不到代码库 [{0}]。请核对：1.拼写是否正确；2.Token权限是否勾选了 "repo"。',
-            'gh_err_empty_repo': '代码库 [{0}] 是空的。全量原子同步必须基于一个存在的基准分支，请先去 GitHub 手动添加一个空文件（如 README.md）初始化分支。',
+            'gh_err_empty_repo': '代码库 [{0}] 是空的。全量原子同步必须基于一个存在的基准分支，请先去 GitHub 手动添加一个空文件初始化分支。',
             'gh_err_conflict': '云端分支发生物理冲突',
             'gh_err_reject': 'GitHub 拒绝了批量合并请求',
             'vfs_err_circular_move': '非法的目录操作：不能将文件夹移动到它自己的子文件夹中。',
             
-            'confirm_title': '操作确认', 
-            'confirm_switch': '确定要清空本地配置并重新选择启动数据源吗？系统将重启。',
-            
-            'conflict_title': '检测到数据冲突',
-            'conflict_desc': '文件 <b>{0}</b> 在另一台设备上被修改并同步。请选择保留哪一个版本：',
-            'conflict_local_title': '💻 保留本地版本',
-            'conflict_local_desc': '保留此设备上的修改，覆盖云端数据。',
-            'conflict_cloud_title': '☁️ 保留云端版本',
-            'conflict_cloud_desc': '放弃此设备上的修改，使用云端数据。',
-            'conflict_local_ver': '本地版本号：{0}',
-            'conflict_cloud_ver': '云端版本号：{0}',
-            'conflict_last_mod': '最后修改：{0}',
-            'conflict_last_sync': '云端同步：{0}',
+            'err_export_failed': '导出失败: {0}',
+            'err_import_failed': '导入失败: {0}',
+            'err_pwd_released': '无法验证：主密码已从内存释放，请重新登录后再试。',
+            'err_uid_mismatch': '危险：血统不符！\n\n该数据源属于另一个完全不同的 Privacy OS 系统 (UID不一致)。\n为防止数据污染，严禁挂载！',
+            'err_mount_failed_detail': '挂载失败：\n{0}',
+            'err_mount_canceled': '挂载取消: {0}',
+            'err_meltdown': '安全警报：主数据源配置解密失败！\n\n系统判定为主密码已被异地修改，或主源核心配置遭到毁灭性破坏。\n\n【最高级别熔断启动】：为保护您的数据安全，本设备留存的本地数据库和敏感缓存已被紧急清空！请刷新页面并重新绑定数据源。',
+            'err_no_monaco': '未找到 Monaco',
+            'err_vditor_timeout': 'Vditor 加载超时',
+            'err_vditor_failed': 'Vditor 加载失败',
             
             'net_fallback_title': '云端连接失败',
-            'net_fallback_desc': '获取 <b>[{0}]</b> 时发生网络异常。云端是系统唯一的安全基准，建议您检查网络后重试。<br><br>如果您确实处于离线环境，可以强制使用本地缓存继续操作。'
+            'net_fallback_desc': '获取 <b>[{0}]</b> 时发生网络异常。云端是系统唯一的安全基准，建议您检查网络后重试。<br><br>如果您确实处于离线环境，可以强制使用本地缓存继续操作。',
+
+            // ==========================================================
+            // 7. 冲突解决与版本回滚 (Conflicts & Rollback)
+            // ==========================================================
+            'conflict_title': '解决冲突 (Diff Merge)',
+            'msg_conflict_pending': '提示：发现延迟挂起的冲突文件',
+            'diff_resolve_title': '解决冲突 (Diff Merge) - {0}',
+            'diff_left_desc': '<b>左侧 (只读)</b>：云端代码 (v{0})，同步于 {1}',
+            'diff_right_desc': '<b>右侧 (可编辑)</b>：本地代码 (v{0})，修改于 {1}',
+            'diff_loading': '正在加载对比引擎...',
+            'diff_btn_cloud': '☁️ 放弃本地，完全覆盖为左侧云端',
+            'diff_btn_merge': '🚀 以右侧为准，标记已解决并推送到云端',
+            'diff_engine_failed': '引擎加载失败: {0}',
+            
+            'rollback_title_dirty': '🔥 严重安全警告：云端异常倒退',
+            'rollback_title_clean': '⚠️ 警告：云端版本低于本地',
+            'rollback_desc_dirty': '检测到文件 <b>{0}</b> 的云端版本 (v{1}) 已异常倒退至低于本地的水平 (v{2})。并且，<b>您本地还有未同步的最新修改</b>！直接拉取将导致您的心血永久丢失。',
+            'rollback_desc_clean': '检测到文件 <b>{0}</b> 的云端版本 (v{1}) 低于本地记录的版本 (v{2})。云端可能发生了人为回滚或被旧设备覆盖。',
+            'rollback_btn_force_dirty': '🚀 (推荐) 保留本地工作，强制修复云端',
+            'rollback_btn_force_clean': '💻 提取本地快照，强制覆盖修复云端',
+            'rollback_btn_force_desc': '系统将把本地内容强行推送到云端，并将版本号重置至最新水平。',
+            'rollback_btn_accept': '☁️ 接受降级，以云端旧版本为准',
+            'rollback_warn_dirty': '<strong style="color:#ff5252;">警告：您本地的修改将永久丢失！</strong>',
+            'rollback_warn_clean': '丢弃本地高版本记录，回退至云端内容。',
+            
+            // ==========================================================
+            // 8. 独立本地同步授权面板 (Local Bind UI)
+            // ==========================================================
+            'local_bind_title': '本地工作区就绪确认',
+            'local_bind_desc_missing': '云端全局配置显示您已开启了【本地同步】，但当前设备尚未绑定具体存放文件夹。\n\n是否立即为该设备绑定一个本地目录以开启实时备份？',
+            'local_bind_desc_expired': '由于浏览器的隐私安全机制，系统之前绑定的本地文件夹读写权限已失效。\n\n点击下方按钮一键重新授权，即可恢复后台静默同步。',
+            'btn_bind_now': '🚀 立即绑定 / 授权',
+            'btn_disable_local': '在此设备关闭本地同步',
+            'perm_restored': '✅ 本地权限已就绪！后台引擎已接管...'
         },
         'en': {
-            // === 1. Common Actions ===
+            // ==========================================================
+            // 1. Common Actions
+            // ==========================================================
             'cancel': 'Cancel', 
             'confirm': 'Confirm', 
             'create': 'Create', 
@@ -177,7 +231,9 @@ const I18nManager = {
             'btn_copy_err': 'Copy Error',
             'msg_copied': 'Copied to clipboard',
 
-            // === 2. System UI & Status ===
+            // ==========================================================
+            // 2. System UI & Status
+            // ==========================================================
             'sys_title': 'Privacy OS', 
             'dock_header': 'Privacy OS', 
             'empty_state': 'Select an app from the sidebar',
@@ -186,8 +242,11 @@ const I18nManager = {
             'theme': 'Theme', 
             'language': 'Language / 显示语言', 
             'no_plugins': 'No plugins available', 
+            'auto_saved': '✨ Safely saved to local workspace (Auto-Saved)',
 
-            // === 3. Password & Security ===
+            // ==========================================================
+            // 3. Security & Lock
+            // ==========================================================
             'sys_locked': 'System Locked', 
             'sys_locked_desc': 'Enter master password to decrypt data.',
             'sys_create_pwd': 'New System', 
@@ -197,10 +256,7 @@ const I18nManager = {
             'pwd_empty': 'Password cannot be empty', 
             'pwd_short': 'Password is too short (min 4 chars)', 
             'pwd_mismatch': 'Passwords do not match!',
-            
-            // ⚡ 英文版同步修改
             'pwd_tip': '💡 Password & Encryption Whitepaper\n\n[Standard]: Please use a strong master password of 32+ characters (upper/lowercase + numbers + symbols).\n\n[Memory Tip]: We recommend "Modular Splicing". Use a memorable base module (e.g., MySecret2026) and repeat it with different trailing symbols. E.g., MySecret2026!MySecret2026@MySecret2026# (39 chars)\n\n[Defense Mechanism]: This system relies on dual-track PBKDF2 (1.2 million SHA-256 iterations) to derive double-layer AES-256-GCM keys. With this extreme computational delay, even if attackers know your splicing logic, brute-forcing a 30+ char password would take longer than the lifespan of the universe. It is physically impossible to crack.',
-            
             'auth_success': 'Authentication successful',
             
             'auto_lock': 'Auto Lock Time',
@@ -213,13 +269,15 @@ const I18nManager = {
             'lock_60m': '60 mins',
             'lock_120m': '120 mins',
 
-            // === 4. Settings & Storage Config ===
+            // ==========================================================
+            // 4. Settings & Storage
+            // ==========================================================
             'settings': 'System Settings', 
             'settings_storage': 'Storage & Sync Engines', 
             'sys_uninitialized': 'No boot source configured. Please select a mount point.', 
             'sys_setup_boot': 'Select Boot Data Source:', 
             
-            'st_local': 'Local Folder Sync', 
+            'st_local': 'Enable Local Sync', 
             'st_github': 'GitHub Repo Sync', 
             'st_api': 'Custom API Sync (WIP)',
             'storage_local': 'Local Folder (PC only)', 
@@ -242,8 +300,20 @@ const I18nManager = {
             'btn_lock': 'Lock System', 
             'btn_rebind_local': 'Select/Auth Local Directory', 
             'btn_switch_source': 'Switch Boot Source',
+            
+            'confirm_title': 'Confirmation', 
+            'confirm_switch': 'Are you sure you want to clear config and select a new boot source? System will restart.',
 
-            // === 5. Core Sync & Execution ===
+            // ==========================================================
+            // 5. Sync & Execution
+            // ==========================================================
+            'sync_detect_lineage': 'Detecting data source lineage...',
+            'sync_format_confirm': 'No system data detected.\n\nThe system will format this directory (physically clearing all files) and sync current workspace data to it. Continue?',
+            'sync_formatting': 'Formatting directory and writing data...',
+            'sync_mount_success': 'Directory mounted successfully! Data is syncing in background.',
+            'sync_format_failed': 'Failed to format directory, check locks or permissions: {0}',
+            'sync_mount_history_success': 'Historical backup mounted successfully! Silently restoring your files...',
+
             'starting': 'Starting {0} ...', 
             'loading_plugin': 'Loading {0}...',
             'load_failed': 'Load failed',
@@ -259,8 +329,23 @@ const I18nManager = {
             'sync_pulling_list': 'Pulling cloud app data...',
             'sync_pulling_file': 'Reading file content from cloud...',
             'save_failed': 'Save failed',
+            
+            'boot_waking_base': 'Waking up base data: [{0}]...',
+            'boot_warming_editor': 'Warming up editor engines (Monaco & Vditor)...',
+            'boot_vfs_align': 'Executing fast VFS state alignment (0 IO Block)...',
+            'boot_preloading_plugins': 'Preloading plugins silently in background (Eager Load)...',
+            'boot_ready': 'System core fully ready!',
+            'boot_failed': 'System boot failed: {0}',
+            'boot_connecting': 'Connecting to main data source for ultimate verification...',
+            
+            'sync_pulling_diff': 'Pulling cloud code for diff...',
+            'sync_exporting_local': 'Mirroring export to local...',
+            'sync_importing_files': 'Importing files...',
+            'sync_importing_dir': 'Importing directory [{0}]...',
 
-            // === 6. Errors & Conflicts ===
+            // ==========================================================
+            // 6. Errors & Exceptions
+            // ==========================================================
             'error_title': 'System Error',
             'sys_exception': 'System exception: {0}',
             'data_corrupted': 'Decryption failed: wrong password or tampered data',
@@ -277,22 +362,53 @@ const I18nManager = {
             'gh_err_reject': 'GitHub rejected batch merge request',
             'vfs_err_circular_move': 'Illegal operation: Cannot move a directory into its own subdirectory.',
             
-            'confirm_title': 'Confirmation', 
-            'confirm_switch': 'Are you sure you want to clear config and select a new boot source? System will restart.',
-            
-            'conflict_title': 'Data Conflict Detected',
-            'conflict_desc': 'File <b>{0}</b> has conflicts. Please choose a version to keep:',
-            'conflict_local_title': '💻 Keep Local',
-            'conflict_local_desc': 'Keep local changes and overwrite the cloud.',
-            'conflict_cloud_title': '☁️ Keep Cloud',
-            'conflict_cloud_desc': 'Discard local changes and pull from the cloud.',
-            'conflict_local_ver': 'Local ver: {0}',
-            'conflict_cloud_ver': 'Cloud ver: {0}',
-            'conflict_last_mod': 'Modified: {0}',
-            'conflict_last_sync': 'Synced: {0}',
+            'err_export_failed': 'Export failed: {0}',
+            'err_import_failed': 'Import failed: {0}',
+            'err_pwd_released': 'Cannot verify: Master password released from memory, please re-login.',
+            'err_uid_mismatch': 'Danger: Lineage mismatch!\n\nThis data source belongs to a completely different Privacy OS (UID mismatch).\nMounting is strictly prohibited to prevent pollution!',
+            'err_mount_failed_detail': 'Mount failed:\n{0}',
+            'err_mount_canceled': 'Mount canceled: {0}',
+            'err_meltdown': 'Security Alert: Main data source config decryption failed!\n\nSystem determines the master password was changed elsewhere, or main core config is destroyed.\n\n[MAXIMUM MELTDOWN INITIATED]: Local database and sensitive caches have been emergency cleared! Refresh and rebind.',
+            'err_no_monaco': 'Monaco not found',
+            'err_vditor_timeout': 'Vditor load timeout',
+            'err_vditor_failed': 'Failed to load Vditor',
             
             'net_fallback_title': 'Cloud Connection Failed',
-            'net_fallback_desc': 'Network error occurred while fetching <b>[{0}]</b>. The cloud is your primary secure backup. Please check your connection and retry.<br><br>If offline, you may force using local cache.'
+            'net_fallback_desc': 'Network error occurred while fetching <b>[{0}]</b>. The cloud is your primary secure backup. Please check your connection and retry.<br><br>If offline, you may force using local cache.',
+
+            // ==========================================================
+            // 7. Conflicts & Rollback
+            // ==========================================================
+            'conflict_title': 'Resolve Conflict (Diff Merge)',
+            'msg_conflict_pending': 'Hint: Found delayed pending conflict files',
+            'diff_resolve_title': 'Resolve Conflict (Diff Merge) - {0}',
+            'diff_left_desc': '<b>Left (Read-only)</b>: Cloud code (v{0}), synced at {1}',
+            'diff_right_desc': '<b>Right (Editable)</b>: Local code (v{0}), modified at {1}',
+            'diff_loading': 'Loading diff engine...',
+            'diff_btn_cloud': '☁️ Discard local, overwrite completely with left cloud',
+            'diff_btn_merge': '🚀 Keep right, mark resolved & push to cloud',
+            'diff_engine_failed': 'Engine load failed: {0}',
+            
+            'rollback_title_dirty': '🔥 CRITICAL: Cloud rollback detected',
+            'rollback_title_clean': '⚠️ Warning: Cloud version is lower than local',
+            'rollback_desc_dirty': 'Cloud version (v{1}) of <b>{0}</b> has rolled back below local (v{2}). AND <b>you have unsynced latest local changes</b>! Direct pull will cause permanent loss of your work.',
+            'rollback_desc_clean': 'Cloud version (v{1}) of <b>{0}</b> is lower than local record (v{2}). Cloud may have been manually rolled back or overwritten by an old device.',
+            'rollback_btn_force_dirty': '🚀 (Recommended) Keep local work, force fix cloud',
+            'rollback_btn_force_clean': '💻 Extract local snapshot, force overwrite cloud',
+            'rollback_btn_force_desc': 'System will forcefully push local content to cloud and reset version to latest.',
+            'rollback_btn_accept': '☁️ Accept downgrade, fallback to old cloud version',
+            'rollback_warn_dirty': '<strong style="color:#ff5252;">Warning: Your local changes will be lost permanently!</strong>',
+            'rollback_warn_clean': 'Discard local high version record, revert to cloud content.',
+            
+            // ==========================================================
+            // 8. Local Bind UI
+            // ==========================================================
+            'local_bind_title': 'Local Workspace Readiness',
+            'local_bind_desc_missing': 'Global config indicates [Local Sync] is enabled, but this device lacks a bound folder.\n\nBind a folder now to enable real-time local backup on this device?',
+            'local_bind_desc_expired': 'Due to browser security mechanisms, the read/write permission for your bound local folder has expired.\n\nClick below to re-authorize and restore background sync.',
+            'btn_bind_now': '🚀 Bind / Authorize Now',
+            'btn_disable_local': 'Disable Local Sync on this device',
+            'perm_restored': '✅ Local permission restored! Background engine taking over...'
         }
     },
     

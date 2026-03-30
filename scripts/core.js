@@ -630,6 +630,7 @@ const SystemVFS = {
                     localChanged = true; pulledFids.push(fid); continue;
                 }
 
+                // 遇到真正无法合并的冲突，如果是静默状态，直接放弃推送（下次前台进入时会重新提示），决不弹窗打断锁定！
                 if (vLoc < vRem && isDirtyLocally) { 
                     if (isBackground) return false; 
                     SystemUI.hideSyncOverlay(); return await this._handleConflictUI(pluginId, fid, locNode, remNode, remoteSource); 
@@ -644,7 +645,8 @@ const SystemVFS = {
                 }
             }
 
-            if (requiresPush && !isBackground) {
+            // ⚡ 核心修复：移除了 && !isBackground 的阻断器，只要是安全更新，一律允许后台静默上云
+            if (requiresPush) { 
                 let additionsPayload = [];
                 let safeMemList = JSON.parse(JSON.stringify(L1.filelist));
 
@@ -672,7 +674,8 @@ const SystemVFS = {
                 this._touchL0(pluginId);
             }
 
-            if (localChanged || (requiresPush && !isBackground)) {
+            // ⚡ 同步修复：移除了后台阻断，强制将推送后的新版本号落盘到 IndexedDB
+            if (localChanged || requiresPush) { 
                 await this._forceSaveL1(pluginId);
 
                 if (SystemCore._currentPlugin) {
@@ -1433,7 +1436,7 @@ const SystemCore = {
                 }
                 
                 SystemUI.showBootScreen();
-                SystemUI.updateBootProgress(10, I18nManager.t('core.boot_connecting'));
+                SystemUI.updateBootProgress(10, I18nManager.t('core.boot_connecting') || '正在连接主数据源进行安全终极校验...');
                 
                 const bootSource = DataSourceManager.createSource('boot', this.bootConfig);
                 let remoteFullBuf;
@@ -1453,16 +1456,40 @@ const SystemCore = {
                     const remoteEncSysUint8 = remoteFullBuf.slice(32);
                     try {
                         this.config = JSON.parse(await CoreCrypto.decrypt(remoteEncSysUint8));
+                        
+                        // ⚡ 性能优化：加入配置“脏检测”，防止登录时产生无意义的云端重复写入
+                        let configChanged = false;
+
                         if (!this.config.uid) {
                             this.config.uid = this.bootConfig.uid || `sys_${Date.now().toString(36)}`;
                             this.bootConfig.uid = this.config.uid;
-                            await this.saveSysConfig();
+                            configChanged = true;
                         } else {
                             this.bootConfig.uid = this.config.uid;
                         }
-                        if (!this.config.storage) this.config.storage = {};
-                        this.config.storage[this.bootConfig.type] = this.bootConfig;
-                        await this.saveSysConfig(); 
+                        
+                        if (!this.config.storage) {
+                            this.config.storage = {};
+                            configChanged = true;
+                        }
+                        
+                        // 检查当前启动盘配置是否真的需要注入云端
+                        const oldStorageStr = JSON.stringify(this.config.storage);
+                        
+                        if (this.bootConfig.type === 'local') {
+                            this.config.storage.local = true;
+                        } else {
+                            const bConf = { ...this.bootConfig }; delete bConf.handle;
+                            this.config.storage[this.bootConfig.type] = bConf;
+                        }
+                        
+                        const newStorageStr = JSON.stringify(this.config.storage);
+                        if (oldStorageStr !== newStorageStr) configChanged = true;
+                        
+                        // ⚡ 只有配置真正发生了变动（比如新设备第一次登录），才触发多余的网络请求
+                        if (configChanged) {
+                            await this.saveSysConfig(); 
+                        }
                     } catch(err) { throw new Error("MELTDOWN"); }
                 }
                 this._finishLogin();
@@ -1499,13 +1526,32 @@ const SystemCore = {
                     await CoreCrypto.initKeys(pwd, remoteSaltHex);
                     this.config = JSON.parse(await CoreCrypto.decrypt(encSysUint8));
                     
-                    if (!this.config.uid) this.config.uid = this.bootConfig.uid || `sys_${Date.now().toString(36)}`;
-                    this.bootConfig.uid = this.config.uid;
+                    // ⚡ 性能优化：加入配置“脏检测”
+                    let configChanged = false;
+
+                    if (!this.config.uid) {
+                        this.config.uid = this.bootConfig.uid || `sys_${Date.now().toString(36)}`;
+                        this.bootConfig.uid = this.config.uid;
+                        configChanged = true;
+                    } else {
+                        this.bootConfig.uid = this.config.uid;
+                    }
                     
-                    if(!this.config.storage) this.config.storage = {}; if(!this.config.file_meta) this.config.file_meta = {};
-                    if (Object.keys(this.config.storage).length === 0) {
-                        const bConf = this.bootConfig;
-                        if (bConf.type === 'local') this.config.storage.local = true; if (bConf.type === 'github') this.config.storage.github = { token: bConf.token, repo: bConf.repo }; if (bConf.type === 'api') this.config.storage.api = { url: bConf.url, token: bConf.token };
+                    if(!this.config.storage) { this.config.storage = {}; configChanged = true; }
+                    if(!this.config.file_meta) { this.config.file_meta = {}; configChanged = true; }
+                    
+                    const oldStorageStr = JSON.stringify(this.config.storage);
+                    if (this.bootConfig.type === 'local') {
+                        this.config.storage.local = true;
+                    } else {
+                        const bConf = { ...this.bootConfig }; delete bConf.handle;
+                        this.config.storage[this.bootConfig.type] = bConf;
+                    }
+                    const newStorageStr = JSON.stringify(this.config.storage);
+                    if (oldStorageStr !== newStorageStr) configChanged = true;
+
+                    // ⚡ 同样进行脏检测阻断
+                    if (configChanged) {
                         await this.saveSysConfig();
                     }
                 } catch(e) { 
@@ -1528,7 +1574,7 @@ const SystemCore = {
             else if (e.message.startsWith('DataCorrupted:')) { SystemUI.showError((I18nManager.t('core.sys_exception', '') || "系统异常: ") + e.message + "\n\n" + (I18nManager.t('core.data_corrupted'))); }
             else if (e.message === 'LocalHandleLost') { SystemUI.showToast(I18nManager.t('core.err_no_fs_api')); this.switchDataSource(false); } 
             else if (e.message === 'RemoteNetworkError') { SystemUI.showError(I18nManager.t('core.net_fallback_title')); }
-            else if (e.message === 'RemoteAuthError') { SystemUI.showError(I18nManager.t('core.auth_failed')); this.switchDataSource(false); }
+            else if (e.message === 'RemoteAuthError') { SystemUI.showError(I18nManager.t('core.auth_failed') || "Auth failed"); this.switchDataSource(false); }
             else if (e.message === 'RemoteVerifyFailed' || e.message === 'RemoteFileNotFound') { SystemUI.showToast(I18nManager.t('core.remote_verify_failed')); this.switchDataSource(false); } 
             else { SystemUI.showToast((I18nManager.t('core.sys_exception', '') || "系统异常: ") + (e.message || e.name)); }
         }
@@ -1538,16 +1584,12 @@ const SystemCore = {
         SystemUI.showSyncOverlay(I18nManager.t('core.sync_locking') || '系统正在安全锁定，执行最终数据收口...');
         
         try {
-            // 0. 杀死守护进程
             try { SystemVFS._killAllDaemons(); } catch (e) { console.error("[Lock] Kill Daemons Error:", e); }
             
-            // ⚡ 新增前置校验：提取系统当前是否真正激活了 Local 和 Remote 数据源
             const hasLocal = !!DataSourceManager.get('local_main');
             const hasRemote = !!SystemVFS._getActiveRemoteSource();
 
-            // 1. 紧急落盘 (L0 -> L1 & LLocal)
             for (let pid in VFS_State.L0) {
-                // 隔离 1: IndexedDB 落盘 (L1 是本地核心缓存，任何情况下都必须写入)
                 try {
                     const wTime = VFS_State.L0[pid].write_time;
                     if (VFS_State.L1[pid].sync_time < wTime) {
@@ -1558,7 +1600,6 @@ const SystemCore = {
                     console.error(`[Lock] L1 Save Failed for ${pid}:`, e);
                 }
 
-                // 隔离 2: 物理硬盘落盘 (⚡ 仅当启用了本地文件夹时才执行)
                 if (hasLocal) {
                     try {
                         const wTime = VFS_State.L0[pid].write_time;
@@ -1572,7 +1613,6 @@ const SystemCore = {
                 }
             }
 
-            // 2. 紧急推送到云端 (⚡ 仅当配置了云端源时，才去进行消耗性能的脏检测和推送)
             if (hasRemote) {
                 for (let pid in VFS_State.L1) {
                     try {
@@ -1592,7 +1632,8 @@ const SystemCore = {
                         }
                         
                         if (isDirty) {
-                            await SystemVFS.syncCloud(pid, true);
+                            // ⚡ 这里的 true 代表后台静默上传。现在 syncCloud 的阻断已经解除，它会完美工作了！
+                            await SystemVFS.syncCloud(pid, true); 
                         }
                     } catch (e) {
                         console.error(`[Lock] Cloud Sync Failed for ${pid}:`, e);
@@ -1603,19 +1644,14 @@ const SystemCore = {
         } catch (e) {
             console.error("[Lock] Critical Sync Sequence Error:", e);
         } finally {
-            // =================================================================
-            // ⚠️ 终极内存自毁程序 (Self-Destruct Sequence)
-            // =================================================================
             try { SystemUI.hideSyncOverlay(true); } catch(e) {}
             try { DataSourceManager.clear(); } catch(e) {}
             
-            // 物理切断内存引用
             VFS_State.L0 = {}; 
             VFS_State.L1 = {}; 
             VFS_State.LLocal = {}; 
             VFS_State.LRemote = {};
 
-            // 插件卸载隔离
             for (let pid in this._loadedPlugins) { 
                 try {
                     const pluginDef = window.SystemPlugins.find(p => p.id === pid); 
@@ -1630,7 +1666,6 @@ const SystemCore = {
             this._loadedPlugins = {}; 
             this._currentPlugin = null;
             
-            // UI 残留清理
             try {
                 document.getElementById('sys-plugin-wrapper').innerHTML = ''; 
                 document.getElementById('sys-empty-state').style.display = 'flex'; 
@@ -1641,7 +1676,6 @@ const SystemCore = {
                 document.querySelectorAll('.dock-item').forEach(el => el.classList.remove('active'));
             } catch (e) {}
         
-            // 终极密钥销毁
             try { CoreCrypto.clearKeys(); } catch(e) { console.error("FATAL: Key clear failed", e); }
             
             this._lastPwd = null; 
@@ -1655,7 +1689,6 @@ const SystemCore = {
                 document.getElementById('sys-pwd2').value = ""; 
             } catch(e) {}
         
-            // 界面切换为安全锁屏
             try {
                 SystemUI.switchScreen('sys-lock-screen'); 
                 SystemUI.showToast(I18nManager.t('core.locked_safe') || '系统已安全清理所有内存并锁定'); 
@@ -1663,7 +1696,6 @@ const SystemCore = {
                 document.getElementById('sys-dock').classList.remove('expanded'); 
             } catch(e) {}
             
-            // 重启状态机探针
             this.boot(); 
         }
     },

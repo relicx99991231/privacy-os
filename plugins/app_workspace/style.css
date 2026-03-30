@@ -225,3 +225,18 @@ html[data-theme="dark"] .ws-tabs-dropdown-item.active { background: rgba(168, 19
     z-index: 99999 !important; 
     background-color: var(--sys-bg) !important;
 }
+
+/* 1. 恢复表格的自适应天性，但加上“紧箍咒” */
+.vditor-reset table {
+  table-layout: auto !important; /* 恢复浏览器原生的自适应列宽计算 */
+  width: auto !important; /* 取消 100% 强制拉伸，让内容决定宽度 */
+  max-width: 100% !important; /* 核心：最大不能超过编辑器宽度 */
+}
+
+/* 2. 单元格文本换行逻辑优化 */
+.vditor-reset table th,
+.vditor-reset table td {
+  white-space: normal !important; /* 允许根据列宽自然换行 */
+  word-wrap: break-word !important; /* 优先在单词边界换行 */
+  word-break: break-word !important; /* 只有当一个长单词/长链接超过列宽时，才强制截断换行 */
+}

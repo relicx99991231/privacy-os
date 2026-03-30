@@ -28,23 +28,23 @@ Privacy OS 是一个完全运行在浏览器中的**本地优先 (Local-first)**
   * **GitHub 模式 (跨平台同步推荐)**：绑定您个人的私有 (Private) GitHub Repository，利用云端实现跨设备的多端实时同步。
 * **🚀 纯静态架构 (Pure Frontend)**
   开箱即用，零后端依赖。没有数据库，没有 API 接口，完全纯前端运行。
-* **🛠️ 内置安全应用 (Built-in Apps)**
-  * **Workspace (工作区)**：沉浸式的多标签页文本与代码编辑器。内置虚拟文件系统 (VFS) 状态机，支持多层级目录管理、本地与云端冲突解决机制。
+* **🛠️ 内置强大应用 (Built-in Apps)**
+  * **Workspace (工作区)**：沉浸式的多标签页文本与代码编辑器。底层集成了顶级的 **Monaco Editor** 和 **Vditor**，支持代码高亮、Markdown 渲染。内置虚拟文件系统 (VFS) 状态机，支持多层级目录管理、本地与云端冲突解决机制。
   * **Authenticator (身份验证器)**：本地安全的 TOTP 二步验证器。支持通过剪贴板或上传直接解析二维码，可视化倒计时，并严格加密保护您的所有 Secret Key。
 * **⏱️ 自动锁定与内存防护 (Auto-lock)**
   支持自定义无操作自动锁定时间。锁定后，系统会彻底清空内存中的解密状态、DOM 节点和临时变量，防止物理窥探。
 
 ### 🚀 部署与运行指引
 
-本项目为纯静态 Web 应用，无需配置任何复杂的开发环境。您可以选择以下任意一种方式运行：
+本项目为纯静态 Web 应用，无需配置任何复杂的开发环境。**注意：由于系统引入了大量的 ES6 Modules 和 Web Workers，为了避免浏览器的本地跨域策略（CORS）限制，本项目不支持直接双击打开 HTML 文件运行。**
 
-1. **本地直接运行 (最简单)**
-   * 下载项目代码后，直接双击打开项目根目录的 `index.html` 文件即可运行。
-   * *(注：建议使用 **Chrome 浏览器**。此本地直接打开的方式未在其他浏览器上进行全面测试，部分浏览器可能会因本地跨域策略限制某些功能)*。
-2. **本地服务器运行 (推荐)**
+请选择以下任意一种方式运行：
+
+1. **本地服务器运行 (推荐)**
    * **使用 VS Code**：在 VS Code 中打开项目文件夹，安装并使用 `Live Server` 插件运行。
    * **使用 Python**：打开终端/命令行，进入项目根目录，运行命令：`python -m http.server 8000`。然后在浏览器中访问 `http://localhost:8000`。
-3. **云端托管 (Web Hosting)**
+   * **使用 Node.js**：运行 `npx http-server .`。
+2. **云端托管 (Web Hosting)**
    * 由于是纯静态文件，您可以直接将此仓库零成本部署到 **GitHub Pages**, **Vercel**, **Netlify** 或 **Cloudflare Pages**。
 
 ### ⚙️ 系统初始化
@@ -70,23 +70,23 @@ Privacy OS is a fully in-browser, **local-first**, and **End-to-End Encrypted (E
   * **GitHub Mode (Recommended for Sync)**: Bind your personal Private GitHub Repository to achieve real-time, cross-device synchronization via the cloud.
 * **🚀 Pure Frontend Architecture**
   Ready to use out-of-the-box with zero backend dependencies. No databases, no API services—just a pure frontend application.
-* **🛠️ Built-in Secure Applications**
-  * **Workspace**: An immersive, multi-tab text and code editor. It features a built-in Virtual File System (VFS) state machine, multi-level directory management, and a local-cloud conflict resolution mechanism.
+* **🛠️ Built-in Powerful Applications**
+  * **Workspace**: An immersive, multi-tab text and code editor powered by **Monaco Editor** and **Vditor**. It features a built-in Virtual File System (VFS) state machine, multi-level directory management, and a local-cloud conflict resolution mechanism.
   * **Authenticator**: A secure, local TOTP two-factor authenticator. Supports direct QR code parsing via clipboard or file upload, visual countdowns, and strict encryption protection for all your Secret Keys.
 * **⏱️ Auto-lock & Memory Protection**
   Supports a customizable auto-lock timer for inactivity. Once locked, the system completely clears decrypted states, DOM nodes, and temporary variables from memory to prevent physical snooping.
 
 ### 🚀 Deployment & Running Guide
 
-This project is a pure static Web application and does not require any complex development environment configuration. You can run it using any of the following methods:
+This project is a pure static Web application. **Note: Due to the use of ES6 Modules and Web Workers, opening the HTML file directly via the `file://` protocol is NOT supported due to browser CORS policies.**
 
-1. **Run Locally Directly (Easiest)**
-   * After downloading the code, simply double-click the `index.html` file in the root directory to run it.
-   * *(Note: **Chrome Browser** is recommended. Opening the local HTML file directly has not been fully tested on other browsers, and some browsers may restrict certain features due to local CORS policies).*
-2. **Run via Local Server (Recommended)**
+Please run the project using one of the following methods:
+
+1. **Run via Local Server (Required for local dev)**
    * **Using VS Code**: Open the project folder in VS Code, install, and use the `Live Server` extension.
    * **Using Python**: Open your terminal/command prompt, navigate to the project root directory, and run the command: `python -m http.server 8000`. Then, visit `http://localhost:8000` in your browser.
-3. **Cloud Web Hosting**
+   * **Using Node.js**: Run `npx http-server .` in the project root.
+2. **Cloud Web Hosting**
    * As pure static files, you can deploy this repository at zero cost to **GitHub Pages**, **Vercel**, **Netlify**, or **Cloudflare Pages**.
 
 ### ⚙️ System Initialization
@@ -121,6 +121,8 @@ Please read this disclaimer carefully before using, downloading, building, or di
 The build and execution of this software rely on the following excellent open-source third-party libraries. We express our gratitude to the original authors.
 本软件的运行依赖于以下优秀的开源第三方库，特此致谢并声明遵循其原有的开源许可证：
 
+* **Monaco Editor** (`libs/monaco-editor/`): MIT License (by Microsoft)
+* **Vditor** (`libs/vditor/`): MIT License (by B3log)
 * **pako** (`libs/scripts/pako.min.js`): MIT License
 * **otplib** (`libs/scripts/otplib.js`): MIT License
 * **jsQR** (`libs/scripts/jsQR.js`): Apache License 2.0 / MIT

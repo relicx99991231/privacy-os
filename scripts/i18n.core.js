@@ -14,7 +14,7 @@
  * ==========================================================================
  */
 
-const I18nManager = {
+window.I18nManager = {
     currentLang: 'en',
     
     coreDict: {
@@ -34,6 +34,7 @@ const I18nManager = {
             'btn_use_local': '强制使用本地缓存',
             'btn_copy_err': '复制错误信息',
             'msg_copied': '已复制到剪贴板',
+            'success': '操作成功',
 
             // ==========================================================
             // 2. 操作系统界面与基础状态 (System UI & Status)
@@ -144,8 +145,19 @@ const I18nManager = {
 
             'sync_pulling_diff': '拉取云端代码用于对比...',
             'sync_exporting_local': '正在镜像导出到本地...',
-            'sync_importing_files': '正在导入文件...',
+            'sync_importing_files': '正在读取文件...',
             'sync_importing_dir': '正在导入目录 [{0}]...',
+            'sync_scanning_folder': '正在扫描文件夹结构...',
+            'sync_atomic_writing': '正在原子化写入工作区...',
+            'sync_writing_workspace': '正在写入工作区...',
+            
+            'import_conflict_title': '命名冲突',
+            'import_conflict_desc1': '目标位置已存在同名项目',
+            'import_conflict_desc2': '请选择操作方式：',
+            'multi_conflict_files': '多个冲突文件',
+            'btn_merge': '覆盖 / 合并',
+            'btn_keep_both': '保留两者 (自动重命名)',
+            'btn_cancel_import': '取消导入',
 
             // ==========================================================
             // 6. 错误处理与异常警报 (Errors & Exceptions)
@@ -176,6 +188,7 @@ const I18nManager = {
             'err_no_monaco': '未找到 Monaco',
             'err_vditor_timeout': 'Vditor 加载超时',
             'err_vditor_failed': 'Vditor 加载失败',
+            'engine_load_failed': '引擎加载失败',
             
             'net_fallback_title': '云端连接失败',
             'net_fallback_desc': '获取 <b>[{0}]</b> 时发生网络异常。云端是系统唯一的安全基准，建议您检查网络后重试。<br><br>如果您确实处于离线环境，可以强制使用本地缓存继续操作。',
@@ -230,6 +243,7 @@ const I18nManager = {
             'btn_use_local': 'Force Local Cache',
             'btn_copy_err': 'Copy Error',
             'msg_copied': 'Copied to clipboard',
+            'success': 'Success',
 
             // ==========================================================
             // 2. System UI & Status
@@ -342,6 +356,17 @@ const I18nManager = {
             'sync_exporting_local': 'Mirroring export to local...',
             'sync_importing_files': 'Importing files...',
             'sync_importing_dir': 'Importing directory [{0}]...',
+            'sync_scanning_folder': 'Scanning folder structure...',
+            'sync_atomic_writing': 'Atomically writing to workspace...',
+            'sync_writing_workspace': 'Writing to workspace...',
+            
+            'import_conflict_title': 'Naming Conflict',
+            'import_conflict_desc1': 'An item with the same name already exists: ',
+            'import_conflict_desc2': 'Please select an action:',
+            'multi_conflict_files': 'Multiple Conflicting Files',
+            'btn_merge': 'Overwrite / Merge',
+            'btn_keep_both': 'Keep Both (Auto Rename)',
+            'btn_cancel_import': 'Cancel Import',
 
             // ==========================================================
             // 6. Errors & Exceptions
@@ -372,6 +397,7 @@ const I18nManager = {
             'err_no_monaco': 'Monaco not found',
             'err_vditor_timeout': 'Vditor load timeout',
             'err_vditor_failed': 'Failed to load Vditor',
+            'engine_load_failed': 'Engine load failed',
             
             'net_fallback_title': 'Cloud Connection Failed',
             'net_fallback_desc': 'Network error occurred while fetching <b>[{0}]</b>. The cloud is your primary secure backup. Please check your connection and retry.<br><br>If offline, you may force using local cache.',
@@ -434,4 +460,4 @@ const I18nManager = {
     }
 };
 
-I18nManager.init();
+window.I18nManager.init();

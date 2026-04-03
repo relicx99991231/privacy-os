@@ -22,8 +22,11 @@ I18nManager.registerPluginDict('app_workspace', {
         'new_name': '输入新名称',
         'create': '创建',
         'confirm': '确定',
+        'no_ext': '(无)',
+        'toggle_width': '切换宽/窄屏',
         
         'err_duplicate': '⚠️ 创建失败：当前目录下已存在同名文件或文件夹！',
+        'err_no_excel_lib': '缺少 Excel 依赖库，无法预览 xlsx 文件',
         'delete_confirm': '确定要删除选中的文件吗？',
         'del_folder_confirm': '⚠️ 警告：确定要删除该目录及其包含的【所有文件和子目录】吗？',
         'cannot_delete_root': '无法操作根目录 ( / )',
@@ -34,10 +37,10 @@ I18nManager.registerPluginDict('app_workspace', {
         'sync_success': '同步成功',
         'sync_reject': '同步被拒绝',
 
-        // ⚡ 新增功能词条
         'move': '移动到',
         'target_folder': '选择目标目录',
-        'import': '导入本地文件夹',
+        'import_file': '导入文件',
+        'import_folder': '导入文件夹',
         'export': '导出到本地',
         'cannot_move_root': '不能移动根目录'
     },
@@ -64,8 +67,11 @@ I18nManager.registerPluginDict('app_workspace', {
         'new_name': 'Enter new name',
         'create': 'Create',
         'confirm': 'Confirm',
+        'no_ext': '(None)',
+        'toggle_width': 'Toggle Width',
         
         'err_duplicate': '⚠️ Error: A file or folder with this name already exists in the target directory!',
+        'err_no_excel_lib': 'Missing Excel libraries, cannot preview xlsx files',
         'delete_confirm': 'Delete this file?',
         'del_folder_confirm': '⚠️ Warning: Delete this folder and ALL its contents?',
         'cannot_delete_root': 'Cannot modify root ( / )',
@@ -76,10 +82,10 @@ I18nManager.registerPluginDict('app_workspace', {
         'sync_success': 'Sync successful',
         'sync_reject': 'Sync rejected',
 
-        // ⚡ Newly added functional translation entries
         'move': 'Move To',
         'target_folder': 'Select Target Folder',
-        'import': 'Import Folder',
+        'import_file': 'Import File',
+        'import_folder': 'Import Folder',
         'export': 'Export to Local',
         'cannot_move_root': 'Cannot move the root directory'
     }

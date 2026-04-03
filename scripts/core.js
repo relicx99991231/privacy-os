@@ -1,6 +1,7 @@
 /**
- * Privacy OS 核心层 (V9.7 终极跨端一致性引擎版)
- * 架构：无冗余 Conflict 状态机 + 独立设备豁免权(Opt-Out) + 原生一键提权 + 强制快照落盘防回档
+ * Privacy OS 核心层 (V9.8 终极一致性与无损存储版)
+ * 架构：无冗余 Conflict 状态机 + 内容智能嗅探(BOM/0x00) + 级联软删 + GC 垃圾回收
+ * 国际化：全量补全深层 UI 交互组件与底层 Daemon 的多语言支持
  */
 
 const CoreUtils = {
@@ -218,13 +219,67 @@ const DataSourceManager = {
     }
 };
 
-// ⚡ 彻底废除 Conflicts
 const VFS_State = { L0: {}, L1: {}, LLocal: {}, LRemote: {} }; 
 
 const SystemVFS = {
     _daemons: {},        
     _isSyncing: {},      
     _isMounting: false,  
+
+    _findActiveChild(pluginId, parentId, name) {
+        const L0 = VFS_State.L0[pluginId];
+        if (!L0) return null;
+
+        for (let id in L0.filelist) {
+            const node = L0.filelist[id];
+            if (node.parentid === parentId && node.name === name && node.deleted < 0) {
+                return { id, type: node.type, node: node };
+            }
+        }
+        return null;
+    },
+
+    _garbageCollectTombstones(pluginId) {
+        const L0 = VFS_State.L0[pluginId];
+        const L1 = VFS_State.L1[pluginId];
+        const LLocal = VFS_State.LLocal[pluginId];
+        if (!L0) return;
+
+        const hasRemote = !!this._getActiveRemoteSource();
+        const hasLocal = !!DataSourceManager.get('local_main');
+
+        let cleanedCount = 0;
+        for (let id in L0.filelist) {
+            const node = L0.filelist[id];
+            
+            if (node.deleted <= 0) continue;
+            if (hasRemote && node.is_dirty_meta) continue;
+            if (hasLocal) {
+                const isLocalTracking = LLocal && LLocal.filelist && LLocal.filelist[id];
+                if (isLocalTracking && LLocal.filelist[id].deleted !== node.deleted) continue;
+            }
+
+            delete L0.filelist[id];
+            if (L0.files && L0.files[id] !== undefined) delete L0.files[id];
+            
+            if (L1 && L1.filelist) {
+                delete L1.filelist[id];
+                if (L1.unsynced) delete L1.unsynced[id];
+                if (L1.cache) delete L1.cache[id];
+            }
+            
+            if (LLocal && LLocal.filelist) {
+                delete LLocal.filelist[id];
+            }
+            
+            cleanedCount++;
+        }
+        
+        if (cleanedCount > 0) {
+            console.log(`[VFS GC] 级联物理清理了 ${cleanedCount} 个陈旧墓碑记录`);
+            if (this._forceSaveL1) this._forceSaveL1(pluginId);
+        }
+    },
 
     _initPluginState(pluginId) { 
         if (!VFS_State.L0[pluginId]) VFS_State.L0[pluginId] = { filelist: {}, files: {}, write_time: 0 };
@@ -398,7 +453,7 @@ const SystemVFS = {
         for (let i = 0; i < plugins.length; i++) {
             const p = plugins[i];
             const percent = 40 + Math.floor((i / plugins.length) * 30);
-            SystemUI.updateBootProgress(percent, I18nManager.t('core.boot_waking_base', p.id));
+            SystemUI.updateBootProgress(percent, window.I18nManager ? I18nManager.t('core.boot_waking_base', p.id) : `Booting ${p.id}...`);
             await this._bootSyncSinglePlugin(p.id);
         }
     },
@@ -449,7 +504,10 @@ const SystemVFS = {
                     VFS_State.LRemote[pluginId].filelist = JSON.parse(await CoreCrypto.decrypt(remoteListBuf)); 
                     this._migrateLegacyData(VFS_State.LRemote[pluginId].filelist); 
                     for(let fid in VFS_State.LRemote[pluginId].filelist) {
-                        if(!L0.filelist[fid]) L0.filelist[fid] = JSON.parse(JSON.stringify(VFS_State.LRemote[pluginId].filelist[fid]));
+                        if(!L0.filelist[fid]) {
+                            if (VFS_State.LRemote[pluginId].filelist[fid].deleted > 0) continue;
+                            L0.filelist[fid] = JSON.parse(JSON.stringify(VFS_State.LRemote[pluginId].filelist[fid]));
+                        }
                     }
                 }
             } catch (e) { }
@@ -505,27 +563,55 @@ const SystemVFS = {
         if (!L0 || !L0.filelist[nodeId] || L0.filelist[nodeId].deleted > 0) return false;
         if (L0.filelist[nodeId].parentid === newParentId) return true;
         let curr = newParentId;
-        while (curr) { if (curr === nodeId) { SystemUI.showError(I18nManager.t('core.vfs_err_circular_move')); return false; } curr = L0.filelist[curr]?.parentid; }
+        while (curr) { if (curr === nodeId) { SystemUI.showError(window.I18nManager ? I18nManager.t('core.vfs_err_circular_move') : "Circular move detected"); return false; } curr = L0.filelist[curr]?.parentid; }
         
         L0.filelist[nodeId].parentid = newParentId; L0.filelist[nodeId].updated_at = Date.now();
         this._evalMetaDirty(pluginId, nodeId); this._touchL0(pluginId); return true;
     },
 
-    deleteNode(pluginId, nodeId) {
+    async deleteNode(pluginId, nodeId) {
         const L0 = VFS_State.L0[pluginId];
         if (!L0 || !L0.filelist[nodeId]) return false;
-        this._cascadeDelete(L0, nodeId); this._touchL0(pluginId); return true;
-    },
-    
-    _cascadeDelete(L0, nodeId) {
-        const meta = L0.filelist[nodeId];
-        if (!meta || meta.deleted > 0) return;
-        if (meta.sync_version === 0) { delete L0.filelist[nodeId]; delete L0.files[nodeId]; } 
-        else {
-            const delTime = Date.now() + (30 * 24 * 60 * 60 * 1000);
-            L0.filelist[nodeId].deleted = delTime; L0.filelist[nodeId].updated_at = Date.now(); L0.filelist[nodeId].is_dirty_meta = true; 
+
+        if (this._pauseAllDaemons) this._pauseAllDaemons();
+        
+        try {
+            const node = L0.filelist[nodeId];
+            if (node.deleted > 0) return true;
+
+            const now = Date.now();
+
+            const markDeletedRecursive = (currentId) => {
+                const currNode = L0.filelist[currentId];
+                if (!currNode || currNode.deleted > 0) return;
+
+                currNode.deleted = now;
+                currNode.updated_at = now;
+                currNode.is_dirty_meta = true; 
+
+                if (currNode.type === 'text' && L0.files && L0.files[currentId] !== undefined) {
+                    delete L0.files[currentId];
+                }
+
+                if (currNode.type === 'directory') {
+                    for (const childId in L0.filelist) {
+                        if (L0.filelist[childId].parentid === currentId) {
+                            markDeletedRecursive(childId);
+                        }
+                    }
+                }
+            };
+
+            markDeletedRecursive(nodeId);
+
+            if (this._touchL0) this._touchL0(pluginId);
+            return true;
+        } catch (e) {
+            console.error("VFS Delete Error:", e);
+            return false;
+        } finally {
+            if (this._resumeAllDaemons) this._resumeAllDaemons();
         }
-        for (let childId in L0.filelist) { if (L0.filelist[childId].parentid === nodeId) { this._cascadeDelete(L0, childId); } }
     },
 
     _evalMetaDirty(pluginId, nodeId) {
@@ -544,7 +630,7 @@ const SystemVFS = {
         if (!L0 || !L0.filelist[fileId] || L0.filelist[fileId].deleted > 0 || L0.filelist[fileId].type === 'directory') return null;
         if (L0.files[fileId] !== undefined) return L0.files[fileId];
 
-        SystemUI.showSyncOverlay(I18nManager.t('core.sync_pulling_file'));
+        SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_pulling_file') : "Pulling file...");
         try {
             let content = null;
             const remoteSource = this._getActiveRemoteSource();
@@ -567,7 +653,7 @@ const SystemVFS = {
         if (!remoteSource) return false;
 
         this._isSyncing[pluginId] = true; 
-        if (!isBackground) SystemUI.showSyncOverlay(I18nManager.t('core.sync_app_data', pluginId));
+        if (!isBackground) SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_app_data', pluginId) : `Syncing ${pluginId}...`);
         
         try {
             await this._reconcileL1(pluginId);
@@ -595,7 +681,10 @@ const SystemVFS = {
                 const vRem = remNode ? (remNode.sync_version || 0) : -1;
 
                 if (!locNode && remNode) {
-                    L1.filelist[fid] = JSON.parse(JSON.stringify(remNode)); L0.filelist[fid] = JSON.parse(JSON.stringify(remNode));
+                    if (remNode.deleted > 0) continue;
+
+                    L1.filelist[fid] = JSON.parse(JSON.stringify(remNode)); 
+                    L0.filelist[fid] = JSON.parse(JSON.stringify(remNode));
                     localChanged = true; pulledFids.push(fid); continue;
                 }
                 if (locNode && !remNode) {
@@ -630,7 +719,6 @@ const SystemVFS = {
                     localChanged = true; pulledFids.push(fid); continue;
                 }
 
-                // 遇到真正无法合并的冲突，如果是静默状态，直接放弃推送（下次前台进入时会重新提示），决不弹窗打断锁定！
                 if (vLoc < vRem && isDirtyLocally) { 
                     if (isBackground) return false; 
                     SystemUI.hideSyncOverlay(); return await this._handleConflictUI(pluginId, fid, locNode, remNode, remoteSource); 
@@ -645,7 +733,6 @@ const SystemVFS = {
                 }
             }
 
-            // ⚡ 核心修复：移除了 && !isBackground 的阻断器，只要是安全更新，一律允许后台静默上云
             if (requiresPush) { 
                 let additionsPayload = [];
                 let safeMemList = JSON.parse(JSON.stringify(L1.filelist));
@@ -674,7 +761,6 @@ const SystemVFS = {
                 this._touchL0(pluginId);
             }
 
-            // ⚡ 同步修复：移除了后台阻断，强制将推送后的新版本号落盘到 IndexedDB
             if (localChanged || requiresPush) { 
                 await this._forceSaveL1(pluginId);
 
@@ -685,12 +771,16 @@ const SystemVFS = {
                     if (typeof SystemCore._currentPlugin.onFilesPulled === 'function' && pulledFids.length > 0) SystemCore._currentPlugin.onFilesPulled(pulledFids);
                 }
             }
-            if (!isBackground) SystemUI.showToast(I18nManager.t('core.sync_success') || '云端同步成功');
+
+            this._garbageCollectTombstones(pluginId);
+
+            if (!isBackground) SystemUI.showToast(window.I18nManager ? I18nManager.t('core.sync_success') : 'Sync Success');
             return true;
 
         } catch (e) {
             if (isBackground && (e.message === 'NETWORK_OFFLINE' || e.message === 'AUTH_FAILED' || e.message.includes('Failed to fetch') || e.message === 'Repo Error')) return false;
-            SystemUI.showError(`Sync Exception [${pluginId}]:\n\n${e.message}`); return false;
+            const errTitle = window.I18nManager ? I18nManager.t('core.sync_exception') || 'Sync Exception' : 'Sync Exception';
+            SystemUI.showError(`${errTitle} [${pluginId}]:\n\n${e.message}`); return false;
         } finally { 
             this._isSyncing[pluginId] = false; 
             if (!isBackground) SystemUI.hideSyncOverlay(true); 
@@ -698,7 +788,7 @@ const SystemVFS = {
     },
 
     async _handleConflictUI(pluginId, fid, locNode, remNode, remoteSource) {
-        SystemUI.showSyncOverlay(I18nManager.t('core.diff_loading') || '拉取云端代码用于对比...');
+        SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.diff_loading') : 'Loading diff...');
         let cloudContent = "";
         try {
             const encDataUint8 = await remoteSource.readPhysicalFile(`${pluginId}/${fid}`);
@@ -753,18 +843,36 @@ const SystemVFS = {
     },
 
     async exportNode(pluginId, nodeId = null) {
-        if (!window.showDirectoryPicker) { SystemUI.showError(I18nManager.t('core.err_no_fs_api')); return false; }
+        if (!window.showDirectoryPicker) { SystemUI.showError(window.I18nManager ? I18nManager.t('core.err_no_fs_api') : "FS API Not Supported"); return false; }
         const L0 = VFS_State.L0[pluginId]; if (!L0) return false;
+
+        const writeContentToFile = async (fileHandle, content) => {
+            const writable = await fileHandle.createWritable();
+            let writeData = content || "";
+            if (typeof content === 'string' && content.startsWith('data:')) {
+                try {
+                    const res = await fetch(content);
+                    writeData = await res.blob(); 
+                } catch (e) {
+                    console.warn("Base64 decode failed, fallback to string");
+                }
+            }
+            await writable.write(writeData); 
+            await writable.close();
+        };
+
         try {
             if (nodeId && L0.filelist[nodeId] && L0.filelist[nodeId].type !== 'directory') {
                 const node = L0.filelist[nodeId];
                 const fileHandle = await window.showSaveFilePicker({ suggestedName: node.name });
                 const content = await this.readFile(pluginId, nodeId);
-                const writable = await fileHandle.createWritable(); await writable.write(content || ""); await writable.close();
+                await writeContentToFile(fileHandle, content);
                 return true;
             }
+            
             const localDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-            SystemUI.showSyncOverlay(I18nManager.t('core.sync_exporting_local') || "正在镜像导出到本地...");
+            SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_exporting_local') : "Exporting...");
+            
             const exportRecursive = async (vfsParentId, currentLocalHandle) => {
                 const children = Object.keys(L0.filelist).filter(id => L0.filelist[id].parentid === vfsParentId && L0.filelist[id].deleted < 0);
                 for (let childId of children) {
@@ -775,49 +883,270 @@ const SystemVFS = {
                     } else {
                         const content = await this.readFile(pluginId, childId);
                         const fileHandle = await currentLocalHandle.getFileHandle(node.name, { create: true });
-                        const writable = await fileHandle.createWritable(); await writable.write(content || ""); await writable.close();
+                        await writeContentToFile(fileHandle, content);
                     }
                 }
             };
+            
             let rootHandle = localDirHandle;
             if (nodeId && L0.filelist[nodeId]) { rootHandle = await localDirHandle.getDirectoryHandle(L0.filelist[nodeId].name, { create: true }); }
-            await exportRecursive(nodeId, rootHandle); return true;
+            await exportRecursive(nodeId, rootHandle); 
+            return true;
         } catch (e) {
-            if (e.name !== 'AbortError') SystemUI.showError((I18nManager.t('core.err_export_failed', '') || "导出失败: ") + e.message); return false;
+            if (e.name !== 'AbortError') SystemUI.showError((window.I18nManager ? I18nManager.t('core.err_export_failed', '') : "Export Failed: ") + e.message); return false;
         } finally { SystemUI.hideSyncOverlay(true); }
     },
 
     async importNode(pluginId, targetParentId = null, type = 'file') {
-        if (!window.showDirectoryPicker) { SystemUI.showError(I18nManager.t('core.err_no_fs_api')); return false; }
+        if (!window.showDirectoryPicker) { SystemUI.showError(window.I18nManager ? I18nManager.t('core.err_no_fs_api') : "FS API Not Supported"); return false; }
+        
+        const L0 = VFS_State.L0[pluginId];
+        if (!L0) return false;
+
+        const generateId = () => Math.floor(1000000000 + Math.random() * 9000000000) + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+
+        const readFileContentSafe = async (file) => {
+            const isBinaryFile = async (f) => {
+                if (f.type && f.type.startsWith('text/')) return false; 
+                const slice = f.slice(0, 4096);
+                const buffer = await slice.arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+
+                if (bytes.length === 0) return false; 
+
+                if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) return false; 
+                if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) return false; 
+                if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) return false; 
+                if (bytes.length >= 4 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0xFE && bytes[3] === 0xFF) return false; 
+
+                for (let i = 0; i < bytes.length; i++) {
+                    if (bytes[i] === 0) return true; 
+                }
+                return false; 
+            };
+
+            const isBinary = await isBinaryFile(file);
+
+            if (!isBinary) {
+                return await file.text(); 
+            } else {
+                return await new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(file); 
+                });
+            }
+        };
+
+        if (!SystemUI.showImportConflict) {
+            SystemUI.showImportConflict = function(name) {
+                return new Promise(resolve => {
+                    let el = document.getElementById('sys-import-conflict-modal');
+                    if (!el) {
+                        el = document.createElement('div'); el.id = 'sys-import-conflict-modal'; el.className = 'sys-modal-overlay'; el.style.zIndex = '20005';
+                        document.body.appendChild(el);
+                    }
+                    window._sysImportConflictCb = (choice) => { el.style.display = 'none'; resolve(choice); };
+                    
+                    const title = window.I18nManager ? I18nManager.t('core.import_conflict_title') || '命名冲突' : '命名冲突';
+                    const desc1 = window.I18nManager ? I18nManager.t('core.import_conflict_desc1') || '目标位置已存在同名项目' : '目标位置已存在同名项目';
+                    const desc2 = window.I18nManager ? I18nManager.t('core.import_conflict_desc2') || '请选择操作方式：' : '请选择操作方式：';
+                    const btnMerge = window.I18nManager ? I18nManager.t('core.btn_merge') || '覆盖 / 合并' : '覆盖 / 合并';
+                    const btnKeep = window.I18nManager ? I18nManager.t('core.btn_keep_both') || '保留两者 (自动重命名)' : '保留两者 (自动重命名)';
+                    const btnCancel = window.I18nManager ? I18nManager.t('core.btn_cancel_import') || '取消导入' : '取消导入';
+
+                    el.innerHTML = `
+                        <div class="sys-modal" style="max-width: 420px; padding: 24px;">
+                            <h3 style="margin-bottom: 16px; color: var(--sys-danger); display: flex; align-items: center; gap: 8px;">
+                                <span class="material-symbols-rounded">warning</span><span>${title}</span>
+                            </h3>
+                            <div style="margin-bottom: 24px; font-size: 0.95rem; line-height: 1.5; color: var(--sys-text);">
+                                ${desc1} <b style="color: var(--sys-primary);">${name}</b>。<br><br>${desc2}
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 12px;">
+                                <button class="sys-btn primary" style="width: 100%; justify-content: center;" onclick="window._sysImportConflictCb('merge')">${btnMerge}</button>
+                                <button class="sys-btn" style="width: 100%; justify-content: center; background: var(--sys-surface-hover); color: var(--sys-text);" onclick="window._sysImportConflictCb('rename')">${btnKeep}</button>
+                                <button class="sys-btn ghost" style="width: 100%; justify-content: center;" onclick="window._sysImportConflictCb('cancel')">${btnCancel}</button>
+                            </div>
+                        </div>`;
+                    el.style.display = 'flex';
+                });
+            };
+        }
+
         try {
             if (type === 'file') {
                 const fileHandles = await window.showOpenFilePicker({ multiple: true });
-                SystemUI.showSyncOverlay(I18nManager.t('core.sync_importing_files') || "正在导入文件...");
+                SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_importing_files') || "正在读取文件..." : "正在读取文件...");
+                
+                const virtualFiles = [];
                 for (const handle of fileHandles) {
-                    const file = await handle.getFile(); const content = await file.text();
-                    await this.createNode(pluginId, file.name, 'text', targetParentId, content);
+                    const file = await handle.getFile(); 
+                    const content = await readFileContentSafe(file);
+                    virtualFiles.push({ name: file.name, kind: 'file', content });
                 }
+                SystemUI.hideSyncOverlay();
+
+                let hasConflict = false;
+                for (const vf of virtualFiles) {
+                    if (this._findActiveChild(pluginId, targetParentId, vf.name)) hasConflict = true;
+                }
+
+                let choice = 'merge';
+                if (hasConflict) {
+                    const multiConflictText = window.I18nManager ? I18nManager.t('core.multi_conflict_files') || '多个冲突文件' : '多个冲突文件';
+                    choice = await SystemUI.showImportConflict(multiConflictText);
+                    if (choice === 'cancel') return false;
+                }
+
+                SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_writing_workspace') || "正在写入工作区..." : "正在写入工作区...");
+                if (this._pauseAllDaemons) this._pauseAllDaemons();
+                const now = Date.now();
+                let isModified = false;
+
+                for (const vf of virtualFiles) {
+                    let finalName = vf.name;
+                    if (choice === 'rename' && this._findActiveChild(pluginId, targetParentId, finalName)) {
+                        finalName = finalName.replace(/(\.[^.]+)$|$/, `_${Math.random().toString(36).substr(2,4)}$1`);
+                    }
+
+                    const existing = this._findActiveChild(pluginId, targetParentId, finalName);
+                    let targetId;
+
+                    if (existing) {
+                        if (existing.type === 'directory') {
+                            finalName += ' (File)';
+                            targetId = generateId();
+                            const sha = typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vf.content) : "";
+                            L0.filelist[targetId] = { name: finalName, parentid: targetParentId, type: 'text', sha256: sha, deleted: -1, updated_at: now, sync_version: 0, is_dirty_meta: true };
+                            if(!L0.files) L0.files = {};
+                            L0.files[targetId] = vf.content;
+                        } else {
+                            targetId = existing.id;
+                            const sha = typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vf.content) : "";
+                            L0.filelist[targetId].sha256 = sha;
+                            L0.filelist[targetId].updated_at = now;
+                            L0.filelist[targetId].is_dirty_meta = true;
+                            if(!L0.files) L0.files = {};
+                            L0.files[targetId] = vf.content;
+                            if (this._evalMetaDirty) this._evalMetaDirty(pluginId, targetId);
+                        }
+                        isModified = true;
+                    } else {
+                        targetId = generateId();
+                        const sha = typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vf.content) : "";
+                        L0.filelist[targetId] = { name: finalName, parentid: targetParentId, type: 'text', sha256: sha, deleted: -1, updated_at: now, sync_version: 0, is_dirty_meta: true };
+                        if(!L0.files) L0.files = {};
+                        L0.files[targetId] = vf.content;
+                        isModified = true;
+                    }
+                }
+                
+                if (isModified && this._touchL0) this._touchL0(pluginId);
+                if (this._resumeAllDaemons) this._resumeAllDaemons();
+
             } else if (type === 'directory') {
                 const dirHandle = await window.showDirectoryPicker();
-                SystemUI.showSyncOverlay(I18nManager.t('core.sync_importing_dir', dirHandle.name));
-                const rootDirId = await this.createNode(pluginId, dirHandle.name, 'directory', targetParentId, "");
-                const importRecursive = async (currentLocalHandle, vfsParentId) => {
-                    for await (const entry of currentLocalHandle.values()) {
+                SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_scanning_folder') || "正在扫描文件夹结构..." : "正在扫描文件夹结构...");
+                
+                const virtualTree = { name: dirHandle.name, kind: 'directory', children: [] };
+                const scanDir = async (handle, node) => {
+                    for await (const entry of handle.values()) {
                         if (entry.kind === 'file') {
-                            const file = await entry.getFile(); const content = await file.text();
-                            await this.createNode(pluginId, entry.name, 'text', vfsParentId, content);
+                            const file = await entry.getFile(); 
+                            const content = await readFileContentSafe(file); 
+                            node.children.push({ name: entry.name, kind: 'file', content });
                         } else if (entry.kind === 'directory') {
-                            const newDirId = await this.createNode(pluginId, entry.name, 'directory', vfsParentId, "");
-                            await importRecursive(entry, newDirId);
+                            const newDir = { name: entry.name, kind: 'directory', children: [] };
+                            node.children.push(newDir);
+                            await scanDir(entry, newDir);
                         }
                     }
                 };
-                await importRecursive(dirHandle, rootDirId);
+                await scanDir(dirHandle, virtualTree);
+                SystemUI.hideSyncOverlay();
+
+                let choice = 'merge';
+                if (this._findActiveChild(pluginId, targetParentId, virtualTree.name)) {
+                    choice = await SystemUI.showImportConflict(virtualTree.name);
+                    if (choice === 'cancel') return false;
+                    if (choice === 'rename') virtualTree.name += `_${Math.random().toString(36).substr(2,4)}`;
+                }
+
+                SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_atomic_writing') || "正在原子化写入工作区..." : "正在原子化写入工作区...");
+                if (this._pauseAllDaemons) this._pauseAllDaemons();
+                const now = Date.now();
+                let isModified = false;
+
+                const applyVirtualTree = async (vNode, currentParentId) => {
+                    let targetId;
+                    const existing = this._findActiveChild(pluginId, currentParentId, vNode.name);
+
+                    if (existing) {
+                        if (vNode.kind === 'directory') {
+                            if (existing.type === 'directory') {
+                                targetId = existing.id; 
+                            } else {
+                                vNode.name += ' (Folder)'; 
+                                targetId = generateId();
+                                L0.filelist[targetId] = { name: vNode.name, parentid: currentParentId, type: 'directory', sha256: "", deleted: -1, updated_at: now, sync_version: 0, is_dirty_meta: true };
+                                isModified = true;
+                            }
+                        } else {
+                            if (existing.type === 'text') {
+                                targetId = existing.id;
+                                const sha = typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vNode.content) : "";
+                                if (L0.filelist[targetId].sha256 !== sha) {
+                                    L0.filelist[targetId].sha256 = sha;
+                                    L0.filelist[targetId].updated_at = now;
+                                    L0.filelist[targetId].is_dirty_meta = true;
+                                    if(!L0.files) L0.files = {};
+                                    L0.files[targetId] = vNode.content;
+                                    if (this._evalMetaDirty) this._evalMetaDirty(pluginId, targetId);
+                                    isModified = true;
+                                }
+                            } else {
+                                vNode.name += ' (File)'; 
+                                targetId = generateId();
+                                const sha = typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vNode.content) : "";
+                                L0.filelist[targetId] = { name: vNode.name, parentid: currentParentId, type: 'text', sha256: sha, deleted: -1, updated_at: now, sync_version: 0, is_dirty_meta: true };
+                                if(!L0.files) L0.files = {};
+                                L0.files[targetId] = vNode.content;
+                                isModified = true;
+                            }
+                        }
+                    } else {
+                        targetId = generateId();
+                        const nType = vNode.kind === 'directory' ? 'directory' : 'text';
+                        const sha = nType === 'text' && typeof CoreUtils !== 'undefined' && CoreUtils.sha256 ? await CoreUtils.sha256(vNode.content) : "";
+                        L0.filelist[targetId] = { name: vNode.name, parentid: currentParentId, type: nType, sha256: sha, deleted: -1, updated_at: now, sync_version: 0, is_dirty_meta: true };
+                        if (nType === 'text') {
+                            if(!L0.files) L0.files = {};
+                            L0.files[targetId] = vNode.content;
+                        }
+                        isModified = true;
+                    }
+
+                    if (vNode.kind === 'directory' && vNode.children) {
+                        for (const child of vNode.children) {
+                            await applyVirtualTree(child, targetId);
+                        }
+                    }
+                };
+
+                await applyVirtualTree(virtualTree, targetParentId);
+
+                if (isModified && this._touchL0) this._touchL0(pluginId);
+                if (this._resumeAllDaemons) this._resumeAllDaemons();
             }
             return true;
         } catch (e) {
-            if (e.name !== 'AbortError') SystemUI.showError((I18nManager.t('core.err_import_failed', '') || "导入失败: ") + e.message); return false;
-        } finally { SystemUI.hideSyncOverlay(true); }
+            if (e.name !== 'AbortError') SystemUI.showError((window.I18nManager ? I18nManager.t('core.err_import_failed', '') : "Import Failed: ") + e.message); 
+            return false;
+        } finally { 
+            SystemUI.hideSyncOverlay(true); 
+            if (this._isMounting && this._resumeAllDaemons) this._resumeAllDaemons(); 
+        }
     }
 };
 
@@ -901,9 +1230,11 @@ const SystemUI = {
         }
         
         const isMissing = type === 'MISSING';
-        const title = I18nManager.t('core.local_bind_title');
-        const desc = isMissing ? I18nManager.t('core.local_bind_desc_missing') : I18nManager.t('core.local_bind_desc_expired');
+        const title = window.I18nManager ? I18nManager.t('core.local_bind_title') : 'Local Bind';
+        const desc = isMissing ? (window.I18nManager ? I18nManager.t('core.local_bind_desc_missing') : 'Missing') : (window.I18nManager ? I18nManager.t('core.local_bind_desc_expired') : 'Expired');
         const btnIcon = isMissing ? 'create_new_folder' : 'lock_open_right';
+        const btnBindText = window.I18nManager ? I18nManager.t('core.btn_bind_now') : 'Bind Now';
+        const btnDisableText = window.I18nManager ? I18nManager.t('core.btn_disable_local') : 'Disable';
         
         window._sysLocalBindCb = (choice) => { 
             el.style.display = 'none'; 
@@ -916,8 +1247,8 @@ const SystemUI = {
                 <h3 style="margin-bottom: 16px; font-size: 1.25rem; color: var(--sys-primary); display: flex; align-items: center; gap: 8px;"><span class="material-symbols-rounded">folder_managed</span><span>${title}</span></h3>
                 <div style="color: var(--sys-text); font-size: 0.95rem; line-height: 1.6; margin-bottom: 24px; white-space: pre-wrap;">${desc}</div>
                 <div style="display: flex; flex-direction: column; gap: 12px;">
-                    <button class="sys-btn primary" style="width: 100%; justify-content: center; padding: 12px;" onclick="window._sysLocalBindCb('bind')"><span class="material-symbols-rounded" style="font-size: 1.2rem; margin-right: 6px;">${btnIcon}</span>${I18nManager.t('core.btn_bind_now')}</button>
-                    <button class="sys-btn ghost" style="width: 100%; justify-content: center; color: var(--sys-text-muted);" onclick="window._sysLocalBindCb('disable')">${I18nManager.t('core.btn_disable_local')}</button>
+                    <button class="sys-btn primary" style="width: 100%; justify-content: center; padding: 12px;" onclick="window._sysLocalBindCb('bind')"><span class="material-symbols-rounded" style="font-size: 1.2rem; margin-right: 6px;">${btnIcon}</span>${btnBindText}</button>
+                    <button class="sys-btn ghost" style="width: 100%; justify-content: center; color: var(--sys-text-muted);" onclick="window._sysLocalBindCb('disable')">${btnDisableText}</button>
                 </div>
             </div>`;
         el.style.display = 'flex';
@@ -932,12 +1263,19 @@ const SystemUI = {
             el.style.display = 'none'; if (callback) callback(choice, finalContent); 
         };
         const formatTime = (ts) => ts ? new Date(ts).toLocaleString() : 'Unknown';
+        
+        const conflictTitle = window.I18nManager ? I18nManager.t('core.conflict_title') : 'Conflict';
+        const loadingText = window.I18nManager ? I18nManager.t('core.diff_loading') || 'Loading...' : 'Loading...';
+        const btnLater = window.I18nManager ? I18nManager.t('core.btn_later') || 'Later' : 'Later';
+        const btnCloud = window.I18nManager ? I18nManager.t('core.diff_btn_cloud') || 'Use Cloud' : 'Use Cloud';
+        const btnMerge = window.I18nManager ? I18nManager.t('core.diff_btn_merge') || 'Use Local/Merged' : 'Use Local/Merged';
+
         el.innerHTML = `
             <div class="sys-modal" style="width: 95%; max-width: 1400px; height: 90vh; padding: 20px; display: flex; flex-direction: column;">
-                <h3 style="margin-bottom: 12px; font-size: 1.25rem; color: var(--sys-danger); display: flex; align-items: center; gap: 8px; flex-shrink: 0;"><span class="material-symbols-rounded">rule_folder</span><span>${I18nManager.t('core.conflict_title')} - ${localMeta.name}</span></h3>
+                <h3 style="margin-bottom: 12px; font-size: 1.25rem; color: var(--sys-danger); display: flex; align-items: center; gap: 8px; flex-shrink: 0;"><span class="material-symbols-rounded">rule_folder</span><span>${conflictTitle} - ${localMeta.name}</span></h3>
                 <div style="color: var(--sys-text-muted); font-size: 0.95rem; margin-bottom: 16px; flex-shrink: 0; display: flex; justify-content: space-between;"><span><b>左侧 (只读)</b>：云端代码 (v${cloudMeta.sync_version || 0})，同步于 ${formatTime(cloudMeta.updated_at)}</span><span><b>右侧 (可编辑)</b>：本地代码 (v${localMeta.sync_version || 0})，修改于 ${formatTime(localMeta.updated_at)}</span></div>
-                <div id="sys-diff-container" style="flex: 1; border: 1px solid var(--sys-border); border-radius: 8px; overflow: hidden; margin-bottom: 20px; min-height: 0;"><div style="display:flex; justify-content:center; align-items:center; height:100%; color: var(--sys-text-muted);">${I18nManager.t('core.diff_loading') || '正在加载...'}</div></div>
-                <div class="modal-actions" style="margin-top: 0; flex-shrink: 0; justify-content: space-between;"><button class="sys-btn ghost" onclick="window._sysConflictCb('cancel')">${I18nManager.t('core.btn_later') || '稍后处理'}</button><div style="display: flex; gap: 12px;"><button class="sys-btn" style="background: var(--sys-surface-hover); color: var(--sys-text);" onclick="window._sysConflictCb('cloud')">${I18nManager.t('core.diff_btn_cloud') || '放弃本地'}</button><button class="sys-btn primary" onclick="window._sysConflictCb('merge')">${I18nManager.t('core.diff_btn_merge') || '以右侧为准'}</button></div></div>
+                <div id="sys-diff-container" style="flex: 1; border: 1px solid var(--sys-border); border-radius: 8px; overflow: hidden; margin-bottom: 20px; min-height: 0;"><div style="display:flex; justify-content:center; align-items:center; height:100%; color: var(--sys-text-muted);">${loadingText}</div></div>
+                <div class="modal-actions" style="margin-top: 0; flex-shrink: 0; justify-content: space-between;"><button class="sys-btn ghost" onclick="window._sysConflictCb('cancel')">${btnLater}</button><div style="display: flex; gap: 12px;"><button class="sys-btn" style="background: var(--sys-surface-hover); color: var(--sys-text);" onclick="window._sysConflictCb('cloud')">${btnCloud}</button><button class="sys-btn primary" onclick="window._sysConflictCb('merge')">${btnMerge}</button></div></div>
             </div>`;
         el.style.display = 'flex';
         SystemCore.loadMonaco().then(() => {
@@ -947,7 +1285,10 @@ const SystemUI = {
             const diffEditor = monaco.editor.createDiffEditor(container, { theme: isDark ? 'vs-dark' : 'vs', automaticLayout: true, originalEditable: false, readOnly: false, renderSideBySide: true, ignoreTrimWhitespace: false, fontSize: 14, fontFamily: "'Consolas', 'Courier New', monospace" });
             const originalModel = monaco.editor.createModel(cloudContent || "", map[ext] || 'plaintext'); const modifiedModel = monaco.editor.createModel(localContent || "", map[ext] || 'plaintext');
             diffEditor.setModel({ original: originalModel, modified: modifiedModel }); window._sysDiffEditor = diffEditor;
-        }).catch(e => { document.getElementById('sys-diff-container').innerHTML = `<div style="padding:20px; color:var(--sys-danger);">引擎加载失败: ${e.message}</div>`; });
+        }).catch(e => { 
+            const loadFailText = window.I18nManager ? I18nManager.t('core.engine_load_failed') || 'Engine load failed' : 'Engine load failed';
+            document.getElementById('sys-diff-container').innerHTML = `<div style="padding:20px; color:var(--sys-danger);">${loadFailText}: ${e.message}</div>`; 
+        });
     },
     showRollbackDialog(pluginId, fid, type, vLoc, vRem, callback) {
         let el = document.getElementById('sys-rollback-modal');
@@ -955,6 +1296,8 @@ const SystemUI = {
         window._sysRollbackCb = (choice) => { el.style.display = 'none'; if (callback) callback(choice); };
         const locMeta = VFS_State.L1[pluginId].filelist[fid]; const isDirty = type === 'dirty';
         
+        if (!window.I18nManager) return;
+
         let title = isDirty ? I18nManager.t('core.rollback_title_dirty') : I18nManager.t('core.rollback_title_clean');
         let desc = isDirty ? I18nManager.t('core.rollback_desc_dirty', locMeta.name, vRem, vLoc) : I18nManager.t('core.rollback_desc_clean', locMeta.name, vRem, vLoc);
         
@@ -975,13 +1318,17 @@ const SystemUI = {
             el = document.createElement('div'); el.id = 'sys-error-modal'; el.className = 'sys-modal-overlay'; el.style.zIndex = '10005'; 
             el.innerHTML = `
                 <div class="sys-modal" style="max-width: 680px; padding: 30px;">
-                    <h3 style="margin-bottom: 16px; font-size: 1.25rem; color: var(--sys-danger); display: flex; align-items: center; gap: 8px;"><span class="material-symbols-rounded">error</span><span id="sys-err-title">${I18nManager.t('core.error_title') || 'Error'}</span></h3>
+                    <h3 style="margin-bottom: 16px; font-size: 1.25rem; color: var(--sys-danger); display: flex; align-items: center; gap: 8px;"><span class="material-symbols-rounded">error</span><span id="sys-err-title">${window.I18nManager ? I18nManager.t('core.error_title') || 'Error' : 'Error'}</span></h3>
                     <div id="sys-error-msg" style="color: #d4d4d4; font-family: Consolas, monospace; font-size: 0.9rem; line-height: 1.5; margin-bottom: 24px; word-break: break-all; white-space: pre-wrap; max-height: 50vh; overflow-y: auto; background: #1e1e1e; padding: 16px; border-radius: 8px; border: 1px solid #333; user-select: text;"></div>
-                    <div class="modal-actions" style="margin-top: 0; display: flex; align-items: center; width: 100%;"><button class="sys-btn ghost" onclick="navigator.clipboard.writeText(document.getElementById('sys-error-msg').innerText).then(() => SystemUI.showToast(I18nManager.t('core.msg_copied') || 'Copied'))" style="width: auto; padding: 10px 16px; margin-right: auto; color: var(--sys-text-muted);"><span class="material-symbols-rounded" style="font-size: 1.1rem; margin-right: 4px;">content_copy</span><span id="sys-err-btn-copy">${I18nManager.t('core.btn_copy_err') || 'Copy'}</span></button><button class="sys-btn primary" onclick="document.getElementById('sys-error-modal').style.display='none'" style="width: auto; padding: 10px 24px; background: var(--sys-danger); color: var(--sys-on-danger);" id="sys-err-btn-ok">${I18nManager.t('core.btn_i_know') || 'OK'}</button></div>
+                    <div class="modal-actions" style="margin-top: 0; display: flex; align-items: center; width: 100%;"><button class="sys-btn ghost" onclick="navigator.clipboard.writeText(document.getElementById('sys-error-msg').innerText).then(() => SystemUI.showToast(window.I18nManager ? I18nManager.t('core.msg_copied') || 'Copied' : 'Copied'))" style="width: auto; padding: 10px 16px; margin-right: auto; color: var(--sys-text-muted);"><span class="material-symbols-rounded" style="font-size: 1.1rem; margin-right: 4px;">content_copy</span><span id="sys-err-btn-copy">${window.I18nManager ? I18nManager.t('core.btn_copy_err') || 'Copy' : 'Copy'}</span></button><button class="sys-btn primary" onclick="document.getElementById('sys-error-modal').style.display='none'" style="width: auto; padding: 10px 24px; background: var(--sys-danger); color: var(--sys-on-danger);" id="sys-err-btn-ok">${window.I18nManager ? I18nManager.t('core.btn_i_know') || 'OK' : 'OK'}</button></div>
                 </div>`;
             document.body.appendChild(el);
         } else {
-            document.getElementById('sys-err-title').innerText = I18nManager.t('core.error_title') || 'Error'; document.getElementById('sys-err-btn-copy').innerText = I18nManager.t('core.btn_copy_err') || 'Copy'; document.getElementById('sys-err-btn-ok').innerText = I18nManager.t('core.btn_i_know') || 'OK';
+            if (window.I18nManager) {
+                document.getElementById('sys-err-title').innerText = I18nManager.t('core.error_title') || 'Error'; 
+                document.getElementById('sys-err-btn-copy').innerText = I18nManager.t('core.btn_copy_err') || 'Copy'; 
+                document.getElementById('sys-err-btn-ok').innerText = I18nManager.t('core.btn_i_know') || 'OK';
+            }
         }
         document.getElementById('sys-error-msg').innerText = msg; el.style.display = 'flex';
     },
@@ -1013,7 +1360,11 @@ const SystemUI = {
         const type = document.getElementById('setup-storage-type').value;
         document.getElementById('setup-github-fields').style.display = type === 'github' ? 'block' : 'none';
         document.getElementById('setup-api-fields').style.display = type === 'api' ? 'block' : 'none';
-        const bindBtn = document.getElementById('sys-btn-bind'); bindBtn.setAttribute('data-i18n', type === 'local' ? 'core.btn_mount_local' : 'core.btn_mount'); I18nManager.translateDOM(bindBtn.parentElement);
+        const bindBtn = document.getElementById('sys-btn-bind'); 
+        if (window.I18nManager) {
+            bindBtn.setAttribute('data-i18n', type === 'local' ? 'core.btn_mount_local' : 'core.btn_mount'); 
+            I18nManager.translateDOM(bindBtn.parentElement);
+        }
     },
     toggleSettingsFields() {
         document.getElementById('set-local-fields').style.display = document.getElementById('set-chk-local').checked ? 'block' : 'none';
@@ -1036,13 +1387,13 @@ const SystemUI = {
     },
     
     async openSettings() {
+        if (!window.I18nManager) return;
         document.getElementById('sys-lang-select').value = I18nManager.currentLang;
         const st = SystemCore.config.storage || {}; const bType = SystemCore.bootConfig?.type;
         const chkLocal = document.getElementById('set-chk-local'); const chkGh = document.getElementById('set-chk-github'); const chkApi = document.getElementById('set-chk-api');
         
         document.getElementById('sys-auto-lock-select').value = SystemCore.config.auto_lock || 0;
         
-        // ⚡ 获取本地豁免权标记
         const isOptOut = localStorage.getItem('sys_local_opt_out') === 'true';
         
         chkLocal.checked = (!!st.local && !isOptOut) || bType === 'local'; 
@@ -1097,7 +1448,7 @@ const SystemCore = {
             window.MonacoEnvironment = { getWorkerUrl: function(workerId, label) { return `data:text/javascript;charset=utf-8,${encodeURIComponent(`self.MonacoEnvironment = { baseUrl: '${window.location.origin}/libs/monaco-editor/min/' }; importScripts('${window.location.origin}/libs/monaco-editor/min/vs/base/worker/workerMain.js');`)}`; } };
             const script = document.createElement('script'); script.id = 'sys-monaco-loader'; script.src = 'libs/monaco-editor/min/vs/loader.js';
             script.onload = () => { require.config({ paths: { 'vs': 'libs/monaco-editor/min/vs' } }); require(['vs/editor/editor.main'], () => { if (window.define && window.define.amd) delete window.define.amd; resolve(); }); };
-            script.onerror = () => reject(new Error(I18nManager.t('core.err_no_monaco'))); document.head.appendChild(script);
+            script.onerror = () => reject(new Error(window.I18nManager ? I18nManager.t('core.err_no_monaco') : 'Failed to load Monaco')); document.head.appendChild(script);
         });
     },
 
@@ -1107,8 +1458,22 @@ const SystemCore = {
             if (document.getElementById('sys-vditor-loader')) { const check = setInterval(() => { if (window.Vditor) { clearInterval(check); resolve(); } }, 50); return; }
             const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = 'libs/vditor/dist/index.css'; document.head.appendChild(link);
             const script = document.createElement('script'); script.id = 'sys-vditor-loader'; script.src = 'libs/vditor/dist/index.min.js';
-            script.onload = () => { const checkReady = setInterval(() => { if (window.Vditor) { clearInterval(checkReady); resolve(); } }, 20); setTimeout(() => { clearInterval(checkReady); if (!window.Vditor) reject(new Error(I18nManager.t('core.err_vditor_timeout'))); }, 5000); };
-            script.onerror = () => reject(new Error(I18nManager.t('core.err_vditor_failed'))); document.body.appendChild(script);
+            script.onload = () => { const checkReady = setInterval(() => { if (window.Vditor) { clearInterval(checkReady); resolve(); } }, 20); setTimeout(() => { clearInterval(checkReady); if (!window.Vditor) reject(new Error(window.I18nManager ? I18nManager.t('core.err_vditor_timeout') : 'Vditor timeout')); }, 5000); };
+            script.onerror = () => reject(new Error(window.I18nManager ? I18nManager.t('core.err_vditor_failed') : 'Vditor failed')); document.body.appendChild(script);
+        });
+    },
+
+    async loadExcelLibs() {
+        if (window.LuckyExcel && window.ExcelJS) return;
+        return new Promise(async (resolve, reject) => {
+            try {
+                await this._loadScript('libs/scripts/luckyexcel.umd.js');
+                await this._loadScript('libs/scripts/exceljs.min.js');
+                resolve();
+            } catch (e) {
+                console.warn("[SystemCore] 无法预加载 ExcelJS 或 LuckyExcel: ", e);
+                resolve();
+            }
         });
     },
 
@@ -1117,7 +1482,7 @@ const SystemCore = {
         this._needLocalReauth = null; 
         
         const st = this.config.storage || {}; const boot = this.bootConfig || {};
-        const isOptOut = localStorage.getItem('sys_local_opt_out') === 'true'; // ⚡ 获取免打扰标记
+        const isOptOut = localStorage.getItem('sys_local_opt_out') === 'true'; 
         
         if (st.local === true || boot.type === 'local') {
             let handle = boot.type === 'local' ? boot.handle : null;
@@ -1137,7 +1502,6 @@ const SystemCore = {
                     if (!isOptOut) this._needLocalReauth = { type: 'EXPIRED', handle };
                 }
             } else if (st.local === true) {
-                // 如果云端开启了，且本地没有句柄，且没有免打扰，才弹出绑定提示
                 if (!isOptOut) this._needLocalReauth = { type: 'MISSING' };
             }
         }
@@ -1163,6 +1527,7 @@ const SystemCore = {
     },
     
     async handleBindStorage() {
+        if (!window.I18nManager) return;
         const type = document.getElementById('setup-storage-type').value; let config = { type };
         try {
             if (type === 'local') { if (!window.showDirectoryPicker) return SystemUI.showToast(I18nManager.t('core.err_no_fs_api')); const handle = await window.showDirectoryPicker({mode: 'readwrite'}); await CoreDB.set('sys_dir_handle', handle); config.handle = handle; } 
@@ -1173,7 +1538,7 @@ const SystemCore = {
     },
     
     async checkSystemFiles() {
-        SystemUI.showSyncOverlay(I18nManager.t('core.detecting_storage'));
+        SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.detecting_storage') : 'Detecting Storage...');
         try { 
             const bootSource = DataSourceManager.createSource('boot', this.bootConfig);
             const content = await bootSource.readPhysicalFile('boot_config');
@@ -1184,6 +1549,7 @@ const SystemCore = {
         } 
         catch(e) { 
             SystemUI.hideSyncOverlay(true);
+            if (!window.I18nManager) return;
             if (e.message === 'NETWORK_OFFLINE' || e.message.startsWith('SERVER_ERROR')) { SystemUI.showError(I18nManager.t('core.connect_failed_detail', 'Network Offline')); } 
             else if (e.message === 'AUTH_FAILED') { SystemUI.showError(I18nManager.t('core.auth_failed')); } 
             else { SystemUI.showToast(I18nManager.t('core.connect_failed_detail', e.message || e.name)); }
@@ -1192,6 +1558,7 @@ const SystemCore = {
     },
 
     async bindLocalInSettings() {
+        if (!window.I18nManager) return;
         if (!window.showDirectoryPicker) return SystemUI.showToast(I18nManager.t('core.err_no_fs_api'));
         try {
             const handle = await window.showDirectoryPicker({mode: 'readwrite'});
@@ -1293,7 +1660,7 @@ const SystemCore = {
     },
 
     async saveSysConfig() {
-        SystemUI.showSyncOverlay(I18nManager.t('core.sync_saving_core'));
+        SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_saving_core') : "Saving Core...");
         try {
             const encryptedUint8 = await CoreCrypto.encrypt(JSON.stringify(this.config));
             const saltBuf = new Uint8Array(CoreUtils.hexToBuf(this.bootConfig.salt));
@@ -1343,19 +1710,20 @@ const SystemCore = {
         document.getElementById('sys-pwd').value = ""; document.getElementById('sys-pwd2').value = ""; 
         
         SystemUI.showBootScreen();
-        SystemUI.updateBootProgress(20, I18nManager.t('core.boot_warming_editor'));
+        SystemUI.updateBootProgress(20, window.I18nManager ? I18nManager.t('core.boot_warming_editor') : 'Warming up editors...');
         
         try {
             await this.loadVditor();
+            await this.loadExcelLibs();
             await this.loadMonaco();
 
-            SystemUI.updateBootProgress(40, I18nManager.t('core.boot_vfs_align'));
+            SystemUI.updateBootProgress(40, window.I18nManager ? I18nManager.t('core.boot_vfs_align') : 'Aligning VFS...');
             await SystemVFS.bootSyncAllPlugins();
 
-            SystemUI.updateBootProgress(80, I18nManager.t('core.boot_preloading_plugins'));
+            SystemUI.updateBootProgress(80, window.I18nManager ? I18nManager.t('core.boot_preloading_plugins') : 'Preloading plugins...');
             await this.loadPlugins(true); 
 
-            SystemUI.updateBootProgress(100, I18nManager.t('core.boot_ready'));
+            SystemUI.updateBootProgress(100, window.I18nManager ? I18nManager.t('core.boot_ready') : 'Ready');
             setTimeout(() => {
                 SystemUI.hideBootScreen();
                 SystemUI.switchScreen('sys-desktop');
@@ -1381,7 +1749,7 @@ const SystemCore = {
                                     await CoreDB.set('sys_dir_handle', finalHandle);
                                     DataSourceManager.register(new LocalDataSource('local_main', 'local', { handle: finalHandle }));
                                     
-                                    localStorage.removeItem('sys_local_opt_out'); // ⚡ 成功绑定，移除豁免标记
+                                    localStorage.removeItem('sys_local_opt_out');
                                     
                                     for (let pid in VFS_State.L0) {
                                         if (VFS_State.LLocal[pid]) {
@@ -1389,15 +1757,15 @@ const SystemCore = {
                                             VFS_State.LLocal[pid].next_tick = Date.now();
                                         }
                                     }
-                                    SystemUI.showToast(I18nManager.t('core.perm_restored'));
+                                    if (window.I18nManager) SystemUI.showToast(I18nManager.t('core.perm_restored'));
                                 } catch (e) {
                                     console.warn("User aborted local binding", e);
                                 }
                             }, 
-                            async () => { // ⚡ 核心修复：纯本地设置豁免标记，绝不修改云端
+                            async () => {
                                 localStorage.setItem('sys_local_opt_out', 'true');
-                                await CoreDB.set('sys_dir_handle', null); // 顺带清理掉无效句柄
-                                SystemUI.showToast(I18nManager.t('core.btn_disable_local') + " (OK)");
+                                await CoreDB.set('sys_dir_handle', null); 
+                                if (window.I18nManager) SystemUI.showToast(I18nManager.t('core.btn_disable_local') + " (OK)");
                             }
                         );
                     }, 1000);
@@ -1406,11 +1774,12 @@ const SystemCore = {
         } catch (e) {
             console.error("Boot sequence failed:", e);
             SystemUI.hideBootScreen();
-            SystemUI.showError(I18nManager.t('core.boot_failed', e.message));
+            if (window.I18nManager) SystemUI.showError(I18nManager.t('core.boot_failed', e.message));
         }
     },
 
     async handleAuth() {
+        if (!window.I18nManager) return;
         const pwd = document.getElementById('sys-pwd').value; if (!pwd) return SystemUI.showToast(I18nManager.t('core.pwd_empty')); SystemUI.showToast(I18nManager.t('core.processing_key'));
         this._lastPwd = pwd; 
         
@@ -1436,7 +1805,7 @@ const SystemCore = {
                 }
                 
                 SystemUI.showBootScreen();
-                SystemUI.updateBootProgress(10, I18nManager.t('core.boot_connecting') || '正在连接主数据源进行安全终极校验...');
+                SystemUI.updateBootProgress(10, I18nManager.t('core.boot_connecting') || 'Connecting...');
                 
                 const bootSource = DataSourceManager.createSource('boot', this.bootConfig);
                 let remoteFullBuf;
@@ -1457,7 +1826,6 @@ const SystemCore = {
                     try {
                         this.config = JSON.parse(await CoreCrypto.decrypt(remoteEncSysUint8));
                         
-                        // ⚡ 性能优化：加入配置“脏检测”，防止登录时产生无意义的云端重复写入
                         let configChanged = false;
 
                         if (!this.config.uid) {
@@ -1473,7 +1841,6 @@ const SystemCore = {
                             configChanged = true;
                         }
                         
-                        // 检查当前启动盘配置是否真的需要注入云端
                         const oldStorageStr = JSON.stringify(this.config.storage);
                         
                         if (this.bootConfig.type === 'local') {
@@ -1486,7 +1853,6 @@ const SystemCore = {
                         const newStorageStr = JSON.stringify(this.config.storage);
                         if (oldStorageStr !== newStorageStr) configChanged = true;
                         
-                        // ⚡ 只有配置真正发生了变动（比如新设备第一次登录），才触发多余的网络请求
                         if (configChanged) {
                             await this.saveSysConfig(); 
                         }
@@ -1506,7 +1872,7 @@ const SystemCore = {
 
                 let initStorage = {}; const bConf = this.bootConfig;
                 if (bConf.type === 'local') initStorage.local = true; if (bConf.type === 'github') initStorage.github = { token: bConf.token, repo: bConf.repo }; if (bConf.type === 'api') initStorage.api = { url: bConf.url, token: bConf.token };
-                this.config = { os_version: '9.7.0', uid: this.bootConfig.uid, created_at: Date.now(), storage: initStorage, file_meta: {}, auto_lock: 0 }; 
+                this.config = { os_version: '9.8.0', uid: this.bootConfig.uid, created_at: Date.now(), storage: initStorage, file_meta: {}, auto_lock: 0 }; 
                 
                 await this.saveSysConfig(); await this.saveEncryptedBootConfig(); this._finishLogin();
             } 
@@ -1526,7 +1892,6 @@ const SystemCore = {
                     await CoreCrypto.initKeys(pwd, remoteSaltHex);
                     this.config = JSON.parse(await CoreCrypto.decrypt(encSysUint8));
                     
-                    // ⚡ 性能优化：加入配置“脏检测”
                     let configChanged = false;
 
                     if (!this.config.uid) {
@@ -1550,7 +1915,6 @@ const SystemCore = {
                     const newStorageStr = JSON.stringify(this.config.storage);
                     if (oldStorageStr !== newStorageStr) configChanged = true;
 
-                    // ⚡ 同样进行脏检测阻断
                     if (configChanged) {
                         await this.saveSysConfig();
                     }
@@ -1571,17 +1935,17 @@ const SystemCore = {
                 SystemUI.showError(I18nManager.t('core.err_meltdown')); return;
             }
             if (e.message === 'LocalDecryptFailed' || e.message === 'DataCorruptedOrWrongPassword') { SystemUI.showToast(I18nManager.t('core.data_corrupted')); } 
-            else if (e.message.startsWith('DataCorrupted:')) { SystemUI.showError((I18nManager.t('core.sys_exception', '') || "系统异常: ") + e.message + "\n\n" + (I18nManager.t('core.data_corrupted'))); }
+            else if (e.message.startsWith('DataCorrupted:')) { SystemUI.showError((I18nManager.t('core.sys_exception', '') || "Exception: ") + e.message + "\n\n" + (I18nManager.t('core.data_corrupted'))); }
             else if (e.message === 'LocalHandleLost') { SystemUI.showToast(I18nManager.t('core.err_no_fs_api')); this.switchDataSource(false); } 
             else if (e.message === 'RemoteNetworkError') { SystemUI.showError(I18nManager.t('core.net_fallback_title')); }
-            else if (e.message === 'RemoteAuthError') { SystemUI.showError(I18nManager.t('core.auth_failed') || "Auth failed"); this.switchDataSource(false); }
+            else if (e.message === 'RemoteAuthError') { SystemUI.showError(I18nManager.t('core.auth_failed')); this.switchDataSource(false); }
             else if (e.message === 'RemoteVerifyFailed' || e.message === 'RemoteFileNotFound') { SystemUI.showToast(I18nManager.t('core.remote_verify_failed')); this.switchDataSource(false); } 
-            else { SystemUI.showToast((I18nManager.t('core.sys_exception', '') || "系统异常: ") + (e.message || e.name)); }
+            else { SystemUI.showToast((I18nManager.t('core.sys_exception', '') || "Exception: ") + (e.message || e.name)); }
         }
     },
     
     async lock() {
-        SystemUI.showSyncOverlay(I18nManager.t('core.sync_locking') || '系统正在安全锁定，执行最终数据收口...');
+        SystemUI.showSyncOverlay(window.I18nManager ? I18nManager.t('core.sync_locking') : 'Locking system...');
         
         try {
             try { SystemVFS._killAllDaemons(); } catch (e) { console.error("[Lock] Kill Daemons Error:", e); }
@@ -1632,7 +1996,6 @@ const SystemCore = {
                         }
                         
                         if (isDirty) {
-                            // ⚡ 这里的 true 代表后台静默上传。现在 syncCloud 的阻断已经解除，它会完美工作了！
                             await SystemVFS.syncCloud(pid, true); 
                         }
                     } catch (e) {
@@ -1672,7 +2035,7 @@ const SystemCore = {
                 document.getElementById('sys-app-actions').innerHTML = '';
                 const appTitle = document.getElementById('sys-app-title'); 
                 appTitle.setAttribute('data-i18n', 'core.dock_header'); 
-                appTitle.innerText = I18nManager.t('core.dock_header') || 'Privacy OS';
+                appTitle.innerText = window.I18nManager ? I18nManager.t('core.dock_header') : 'Privacy OS';
                 document.querySelectorAll('.dock-item').forEach(el => el.classList.remove('active'));
             } catch (e) {}
         
@@ -1691,7 +2054,7 @@ const SystemCore = {
         
             try {
                 SystemUI.switchScreen('sys-lock-screen'); 
-                SystemUI.showToast(I18nManager.t('core.locked_safe') || '系统已安全清理所有内存并锁定'); 
+                if (window.I18nManager) SystemUI.showToast(I18nManager.t('core.locked_safe')); 
                 SystemUI.toggleSidebar(true); 
                 document.getElementById('sys-dock').classList.remove('expanded'); 
             } catch(e) {}
@@ -1702,14 +2065,20 @@ const SystemCore = {
     
     async loadPlugins(isEager = false) {
         const listEl = document.getElementById('dock-plugins-list'); listEl.innerHTML = '';
-        if (!window.SystemPlugins || window.SystemPlugins.length === 0) { listEl.innerHTML = `<div style="padding:15px; color:var(--sys-text-muted); font-size:0.9rem; text-align:center; font-weight:500;" data-i18n="core.no_plugins">${I18nManager.t('core.no_plugins')}</div>`; return; }
+        if (!window.SystemPlugins || window.SystemPlugins.length === 0) { 
+            listEl.innerHTML = `<div style="padding:15px; color:var(--sys-text-muted); font-size:0.9rem; text-align:center; font-weight:500;" data-i18n="core.no_plugins">${window.I18nManager ? I18nManager.t('core.no_plugins') : 'No plugins'}</div>`; 
+            return; 
+        }
         
         const wrapper = document.getElementById('sys-plugin-wrapper');
         const i18nPromises = window.SystemPlugins.map(plugin => { if (plugin.i18n && !document.querySelector(`script[src="${plugin.i18n}"]`)) { return this._loadScript(plugin.i18n).catch(e => {}); } return Promise.resolve(); });
         await Promise.all(i18nPromises);
 
         for (let plugin of window.SystemPlugins) {
-            const btn = document.createElement('div'); btn.className = 'dock-item'; const text = I18nManager.t(plugin.nameI18nKey) || plugin.id; btn.title = text; const iconName = plugin.icon || 'extension'; 
+            const btn = document.createElement('div'); btn.className = 'dock-item'; 
+            const text = window.I18nManager ? I18nManager.t(plugin.nameI18nKey) : plugin.id; 
+            btn.title = text; 
+            const iconName = plugin.icon || 'extension'; 
             btn.innerHTML = `<span class="material-symbols-rounded">${iconName}</span><span class="plugin-name" ${plugin.nameI18nKey ? `data-i18n="${plugin.nameI18nKey}"` : ''}>${text}</span>`;
             btn.onclick = function() { SystemCore.activatePlugin(plugin, this); }; listEl.appendChild(btn);
 
@@ -1734,7 +2103,7 @@ const SystemCore = {
         document.querySelectorAll('.dock-item').forEach(el => el.classList.remove('active')); if (clickedElement) clickedElement.classList.add('active'); document.getElementById('sys-empty-state').style.display = 'none';
         
         const appTitle = document.getElementById('sys-app-title'); const appActions = document.getElementById('sys-app-actions');
-        let pName = I18nManager.t(plugin.nameI18nKey) || plugin.id; 
+        let pName = window.I18nManager ? I18nManager.t(plugin.nameI18nKey) : plugin.id; 
         if(plugin.nameI18nKey) appTitle.setAttribute('data-i18n', plugin.nameI18nKey); else appTitle.removeAttribute('data-i18n');
         appTitle.innerText = pName; appActions.innerHTML = ''; 
         
@@ -1742,15 +2111,19 @@ const SystemCore = {
         Object.values(this._loadedPlugins).forEach(container => { container.style.display = 'none'; container.classList.remove('active'); });
 
         if (!this._loadedPlugins[plugin.id]) {
-            SystemUI.showToast(I18nManager.t('core.starting', pName));
+            if (window.I18nManager) SystemUI.showToast(I18nManager.t('core.starting', pName));
             const wrapper = document.getElementById('sys-plugin-wrapper'); const pContainer = document.createElement('div'); pContainer.className = 'plugin-container active'; pContainer.id = 'plugin-' + plugin.id;
-            pContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--sys-text-muted); width: 100%;">${I18nManager.t('core.loading_plugin', pName)}</div>`; wrapper.appendChild(pContainer);
+            const loadingText = window.I18nManager ? I18nManager.t('core.loading_plugin', pName) : 'Loading...';
+            pContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--sys-text-muted); width: 100%;">${loadingText}</div>`; wrapper.appendChild(pContainer);
             try {
                 if (plugin.style) this._loadStyle(plugin.style); if (plugin.script) await this._loadScript(plugin.script);
                 const pluginObj = window[plugin.globalName]; if (!pluginObj) throw new Error("Plugin object not found");
                 this._currentPlugin = pluginObj; this._loadedPlugins[plugin.id] = pContainer; pContainer.innerHTML = ''; 
                 await this._currentPlugin.mount(pContainer);
-            } catch (e) { pContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--sys-danger); width: 100%;">${I18nManager.t('core.load_failed')}: ${e.message}</div>`; }
+            } catch (e) { 
+                const failText = window.I18nManager ? I18nManager.t('core.load_failed') : 'Load failed';
+                pContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: var(--sys-danger); width: 100%;">${failText}: ${e.message}</div>`; 
+            }
         } else {
             this._currentPlugin = window[plugin.globalName]; const pContainer = this._loadedPlugins[plugin.id]; pContainer.style.display = 'flex'; pContainer.classList.add('active');
         }
@@ -1761,23 +2134,22 @@ const SystemCore = {
 
     switchDataSource(silent = false) {
         const doSwitch = () => { localStorage.removeItem('sys_boot_config_enc'); localStorage.removeItem('sys_boot_config'); this.bootConfig = null; CoreCrypto.clearKeys(); CoreDB.set('sys_dir_handle', null).then(() => { location.reload(); }); };
-        if (silent === true) { doSwitch(); } else { SystemUI.showConfirm(I18nManager.t('core.confirm_switch'), doSwitch); }
+        if (silent === true) { doSwitch(); } else { SystemUI.showConfirm(window.I18nManager ? I18nManager.t('core.confirm_switch') : 'Confirm switch?', doSwitch); }
     },
     
     async saveSettings() {
+        if (!window.I18nManager) return;
         I18nManager.setLang(document.getElementById('sys-lang-select').value); 
         I18nManager.translateDOM(); 
         
         const st = {}; const bType = this.bootConfig?.type;
         this.config.auto_lock = parseInt(document.getElementById('sys-auto-lock-select').value) || 0;
         
-        // ⚡ 修复：核心的豁免与同步逻辑分离
         const isLocalChecked = document.getElementById('set-chk-local').checked;
         if (isLocalChecked || bType === 'local') {
             st.local = true;
-            localStorage.removeItem('sys_local_opt_out'); // 取消本地豁免
+            localStorage.removeItem('sys_local_opt_out');
         } else {
-            // 只设置本地免打扰标记，保持云端配置不变，不上传覆盖其他设备的开启状态
             st.local = this.config.storage?.local || false; 
             localStorage.setItem('sys_local_opt_out', 'true');
             await CoreDB.set('sys_dir_handle', null);
@@ -1823,7 +2195,7 @@ document.addEventListener('contextmenu', (e) => {
 document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault(); 
-        SystemUI.showToast(I18nManager.t('core.auto_saved'));
+        if (window.I18nManager) SystemUI.showToast(I18nManager.t('core.auto_saved'));
     }
 });
 

@@ -4,7 +4,7 @@ window.AppAuthenticator = {
     _libLoaded: false, _cloudDirtyList: [], 
     _categories: [], _currentCat: 'ALL',
     _contextMenuData: null, _globalClickHandler: null, _resizeHandler: null,
-    _currentSecretId: null, // 临时保存正处于查看状态的账号ID
+    _currentSecretId: null,
 
     mount: async function(container) {
         this._container = container;
@@ -34,13 +34,14 @@ window.AppAuthenticator = {
         this._pasteHandler = this.handlePaste.bind(this);
         window.addEventListener('paste', this._pasteHandler);
         
+        // 【修复】：全局收起下拉菜单由 click 改为 mousedown，防止拖拽松开时的误判
         this._globalClickHandler = (e) => {
             const pcMenu = document.getElementById('auth-pc-dropdown');
             if (pcMenu && pcMenu.style.display === 'flex' && !e.target.closest('.auth-cat-more') && !e.target.closest('.auth-icon-btn')) {
                 pcMenu.style.display = 'none';
             }
         };
-        window.addEventListener('click', this._globalClickHandler);
+        window.addEventListener('mousedown', this._globalClickHandler);
         
         this._resizeHandler = () => { if (SystemCore._currentPlugin === this) this.updateTopTitle(); };
         window.addEventListener('resize', this._resizeHandler);
@@ -84,7 +85,7 @@ window.AppAuthenticator = {
     unmount: function(container) {
         clearTimeout(this._updateTimer); clearTimeout(this._saveTimer);
         if (this._pasteHandler) window.removeEventListener('paste', this._pasteHandler);
-        if (this._globalClickHandler) window.removeEventListener('click', this._globalClickHandler);
+        if (this._globalClickHandler) window.removeEventListener('mousedown', this._globalClickHandler);
         if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
         this.closeAllModals(); this._accounts = []; this._categories = []; container.innerHTML = '';
     },
@@ -171,9 +172,10 @@ window.AppAuthenticator = {
             <div id="auth-pc-dropdown" class="auth-dropdown-menu"></div>
         `;
 
+        // 【核心修复】：所有的 onclick 换成了 onmousedown，且内层 div 移除了 stopPropagation
         const modalsHTML = `
-            <div id="auth-add-modal" class="sys-modal-overlay" style="display:none;" onclick="AppAuthenticator.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="auth-add-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppAuthenticator.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_authenticator.add_account" style="margin-bottom: 24px;"></h3>
                     <button class="sys-btn ghost" style="border: 1px dashed var(--sys-border); margin-bottom: 24px; flex-direction: column; gap: 8px; padding: 24px 12px; height: auto;" onclick="document.getElementById('auth-qr-upload').click()">
                         <span class="material-symbols-rounded" style="font-size: 2.2rem; color: var(--sys-primary);">qr_code_scanner</span>
@@ -193,8 +195,8 @@ window.AppAuthenticator = {
                 </div>
             </div>
 
-            <div id="auth-cat-input-modal" class="sys-modal-overlay" style="display:none;" onclick="AppAuthenticator.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="auth-cat-input-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppAuthenticator.closeAllModals()">
+                <div class="sys-modal">
                     <h3 id="auth-cat-modal-title"></h3>
                     <input type="text" id="auth-cat-input" class="sys-input" data-i18n="app_authenticator.input_cat_name" placeholder="..." autocomplete="off">
                     <div class="modal-actions" style="margin-top: 24px;">
@@ -204,8 +206,8 @@ window.AppAuthenticator = {
                 </div>
             </div>
 
-            <div id="auth-secret-modal" class="sys-modal-overlay" style="display:none;" onclick="AppAuthenticator.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="auth-secret-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppAuthenticator.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_authenticator.view_secret" style="margin-bottom: 24px;"></h3>
                     <div id="auth-secret-display" style="font-family: monospace; background: var(--sys-surface-hover); padding: 20px; border-radius: 8px; word-break: break-all; margin-bottom: 24px; font-size: 1.2rem; color: var(--sys-primary); text-align: center; letter-spacing: 2px; font-weight: bold;"></div>
                     <div class="modal-actions" style="margin-top: 32px;">
@@ -215,8 +217,8 @@ window.AppAuthenticator = {
                 </div>
             </div>
             
-            <div id="auth-bottom-sheet" class="auth-bottom-sheet-overlay" onclick="AppAuthenticator.closeAllModals(event)">
-                <div class="auth-bottom-sheet" onclick="event.stopPropagation()">
+            <div id="auth-bottom-sheet" class="auth-bottom-sheet-overlay" onmousedown="if(event.target===this) AppAuthenticator.closeAllModals()">
+                <div class="auth-bottom-sheet">
                     <div id="auth-bs-title" class="auth-bs-title"></div>
                     <div id="auth-bs-content" style="display:flex; flex-direction:column; gap:4px;"></div>
                 </div>
@@ -226,7 +228,7 @@ window.AppAuthenticator = {
         I18nManager.translateDOM(this._container);
         I18nManager.translateDOM(document.getElementById('auth-add-modal'));
         I18nManager.translateDOM(document.getElementById('auth-cat-input-modal'));
-        I18nManager.translateDOM(document.getElementById('auth-secret-modal')); // ⚡ 初始化弹窗翻译
+        I18nManager.translateDOM(document.getElementById('auth-secret-modal'));
         this.checkSyncState();
     },
 
@@ -416,7 +418,6 @@ window.AppAuthenticator = {
                     `;
                 }
             });
-            // ⚡ 添加：查看密钥按钮
             html += `
                 <div style="margin: 8px 0; border-bottom: 1px solid var(--sys-border);"></div>
                 <button class="auth-bs-btn" onclick="AppAuthenticator.openSecretModal('${id}')">
@@ -436,7 +437,6 @@ window.AppAuthenticator = {
                     html += `<div class="auth-dropdown-item" onclick="AppAuthenticator.moveToCat('${id}', '${this.escape(cat)}')"><span class="material-symbols-rounded" style="font-size:1.1rem; opacity:0.7;">folder_open</span> ${I18nManager.t('app_authenticator.move_to')} ${this.escape(cat)}</div>`;
                 }
             });
-            // ⚡ 添加：查看密钥按钮
             html += `<div style="height:1px; background:var(--sys-border); margin:4px 0;"></div>`;
             html += `<div class="auth-dropdown-item" onclick="AppAuthenticator.openSecretModal('${id}')"><span class="material-symbols-rounded" style="font-size:1.1rem;">visibility</span> ${I18nManager.t('app_authenticator.view_secret')}</div>`;
             html += `<div class="auth-dropdown-item danger" onclick="AppAuthenticator.deleteAccount('${id}')"><span class="material-symbols-rounded" style="font-size:1.1rem;">delete</span> ${I18nManager.t('core.delete')}</div>`;
@@ -533,7 +533,6 @@ window.AppAuthenticator = {
         } catch (e) { SystemUI.showToast(I18nManager.t('app_authenticator.copy_failed')); }
     },
 
-    // ⚡ 新增的：打开密钥弹窗
     openSecretModal: function(id) {
         this.closeAllModals();
         const acc = this._accounts.find(a => a.id === id);
@@ -543,7 +542,6 @@ window.AppAuthenticator = {
         document.getElementById('auth-secret-modal').style.display = 'flex';
     },
 
-    // ⚡ 新增的：复制密钥功能
     copySecret: function() {
         if (!this._currentSecretId) return;
         const acc = this._accounts.find(a => a.id === this._currentSecretId);
@@ -643,9 +641,8 @@ window.AppAuthenticator = {
         }
     },
 
-    closeAllModals: function(e) {
-        if(e && !e.target.id.includes('-modal') && !e.target.id.includes('bottom-sheet') && e.target.tagName !== 'BUTTON') return;
-        // ⚡ 将 auth-secret-modal 注册到点击外部一键关闭白名单中
+    // 【修复】：去掉了 e 判断，直接暴力隐藏所有相关的 modal
+    closeAllModals: function() {
         ['auth-add-modal', 'auth-cat-input-modal', 'auth-bottom-sheet', 'auth-pc-dropdown', 'auth-secret-modal'].forEach(id => {
             const el = document.getElementById(id); if(el) el.style.display = 'none';
         });

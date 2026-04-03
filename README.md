@@ -29,18 +29,21 @@ Privacy OS 是一个完全运行在浏览器中的**本地优先 (Local-first)**
 * **🚀 纯静态架构 (Pure Frontend)**
   开箱即用，零后端依赖。没有数据库，没有 API 接口，完全纯前端运行。
 * **🛠️ 内置强大应用 (Built-in Apps)**
-  * **Workspace (工作区)**：沉浸式的多标签页文本与代码编辑器。底层集成了顶级的 **Monaco Editor** 和 **Vditor**，支持代码高亮、Markdown 渲染。内置虚拟文件系统 (VFS) 状态机，支持多层级目录管理、本地与云端冲突解决机制。
+  * **Workspace (工作区)**：沉浸式的多标签页编辑器矩阵。
+    * **文档与代码**：底层集成顶级 **Monaco Editor** 和 **Vditor**，支持代码高亮与所见即所得的 Markdown 渲染。
+    * **复杂电子表格**：深度集成 **Luckysheet** 与 **ExcelJS**，支持纯本地解析、查看和编辑真实的 `.xlsx` 格式表格数据，无需上传至任何云端服务器。
+    * 内置虚拟文件系统 (VFS) 状态机，支持多层级目录管理、本地与云端冲突解决机制。
   * **Authenticator (身份验证器)**：本地安全的 TOTP 二步验证器。支持通过剪贴板或上传直接解析二维码，可视化倒计时，并严格加密保护您的所有 Secret Key。
 * **⏱️ 自动锁定与内存防护 (Auto-lock)**
   支持自定义无操作自动锁定时间。锁定后，系统会彻底清空内存中的解密状态、DOM 节点和临时变量，防止物理窥探。
 
 ### 🚀 部署与运行指引
 
-本项目为纯静态 Web 应用，无需配置任何复杂的开发环境。**注意：由于系统引入了大量的 ES6 Modules 和 Web Workers，为了避免浏览器的本地跨域策略（CORS）限制，本项目不支持直接双击打开 HTML 文件运行。**
+本项目为纯静态 Web 应用。**注意：由于系统引入了大量的 ES6 Modules、Web Workers 以及复杂的表格引擎，为了避免浏览器的本地跨域策略（CORS）限制，本项目不支持直接双击打开 HTML 文件运行。**
 
 请选择以下任意一种方式运行：
 
-1. **本地服务器运行 (推荐)**
+1. **本地服务器运行 (推荐进行本地开发使用)**
    * **使用 VS Code**：在 VS Code 中打开项目文件夹，安装并使用 `Live Server` 插件运行。
    * **使用 Python**：打开终端/命令行，进入项目根目录，运行命令：`python -m http.server 8000`。然后在浏览器中访问 `http://localhost:8000`。
    * **使用 Node.js**：运行 `npx http-server .`。
@@ -71,14 +74,17 @@ Privacy OS is a fully in-browser, **local-first**, and **End-to-End Encrypted (E
 * **🚀 Pure Frontend Architecture**
   Ready to use out-of-the-box with zero backend dependencies. No databases, no API services—just a pure frontend application.
 * **🛠️ Built-in Powerful Applications**
-  * **Workspace**: An immersive, multi-tab text and code editor powered by **Monaco Editor** and **Vditor**. It features a built-in Virtual File System (VFS) state machine, multi-level directory management, and a local-cloud conflict resolution mechanism.
+  * **Workspace**: An immersive, multi-tab editor matrix.
+    * **Code & Docs**: Powered by **Monaco Editor** and **Vditor** for robust code highlighting and WYSIWYG Markdown rendering.
+    * **Spreadsheets**: Deeply integrated with **Luckysheet** and **ExcelJS**, supporting pure local parsing, viewing, and editing of real `.xlsx` spreadsheet files without ever uploading to a cloud server.
+    * Features a built-in Virtual File System (VFS) state machine, multi-level directory management, and a local-cloud conflict resolution mechanism.
   * **Authenticator**: A secure, local TOTP two-factor authenticator. Supports direct QR code parsing via clipboard or file upload, visual countdowns, and strict encryption protection for all your Secret Keys.
 * **⏱️ Auto-lock & Memory Protection**
   Supports a customizable auto-lock timer for inactivity. Once locked, the system completely clears decrypted states, DOM nodes, and temporary variables from memory to prevent physical snooping.
 
 ### 🚀 Deployment & Running Guide
 
-This project is a pure static Web application. **Note: Due to the use of ES6 Modules and Web Workers, opening the HTML file directly via the `file://` protocol is NOT supported due to browser CORS policies.**
+This project is a pure static Web application. **Note: Due to the use of ES6 Modules, Web Workers, and complex spreadsheet engines, opening the HTML file directly via the `file://` protocol is NOT supported due to browser CORS policies.**
 
 Please run the project using one of the following methods:
 
@@ -121,6 +127,9 @@ Please read this disclaimer carefully before using, downloading, building, or di
 The build and execution of this software rely on the following excellent open-source third-party libraries. We express our gratitude to the original authors.
 本软件的运行依赖于以下优秀的开源第三方库，特此致谢并声明遵循其原有的开源许可证：
 
+* **Luckysheet**: MIT License (by mengshukeji)
+* **Luckyexcel**: MIT License (by mengshukeji)
+* **ExcelJS**: MIT License (by exceljs)
 * **Monaco Editor** (`libs/monaco-editor/`): MIT License (by Microsoft)
 * **Vditor** (`libs/vditor/`): MIT License (by B3log)
 * **pako** (`libs/scripts/pako.min.js`): MIT License

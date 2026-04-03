@@ -1,6 +1,9 @@
 /**
- * 私有工作区核心 - 双核生产力终极版 (Monaco + Vditor)
- * 【新增】：支持 MD 宽/窄屏一键切换，状态持久化记忆，动态按需显示按钮。
+ * 私有工作区核心 - 终极沙箱版 (Monaco + Vditor + Iframe隔离的Luckysheet)
+ * 【重构】：完全摒弃 JSON 格式，统一采用真实二进制 Xlsx (Base64) 进行双向读写。
+ * 【隔离】：采用 Iframe Sandbox 彻底隔离 Luckysheet，支持多 Tab 秒切不重绘。
+ * 【动态暗色】：引入 Filter 滤镜魔法，完美让 Canvas 表格跟随 OS 系统的日/夜间模式切换！
+ * 【国际化】：全量修复硬编码的中文，完美支持 I18n 语言切换。
  */
 
 window.AppWorkspace = {
@@ -8,7 +11,6 @@ window.AppWorkspace = {
     _container: null, _cloudDirtyList: [], _expandedDirs: new Set([null]), _globalClickHandler: null, 
     _editorInstances: {}, _resizeHandler: null, _themeObserver: null,
     
-    // ⚡ 新增：从本地缓存读取用户上次设置的宽窄屏偏好
     _isMdWideMode: localStorage.getItem('ws_md_wide') === 'true',
 
     mount: async function(container) {
@@ -34,7 +36,7 @@ window.AppWorkspace = {
                 contextMenu.style.display = 'none';
             }
         };
-        window.addEventListener('click', this._globalClickHandler);
+        window.addEventListener('mousedown', this._globalClickHandler);
         window.addEventListener('contextmenu', (e) => {
             const contextMenu = document.getElementById('ws-context-menu');
             if (contextMenu && contextMenu.style.display === 'flex' && !contextMenu.contains(e.target) && !e.target.closest('#ws-tree-container')) {
@@ -54,6 +56,9 @@ window.AppWorkspace = {
             mutations.forEach(m => {
                 if (m.attributeName === 'data-theme') {
                     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+                    
+                    if (window.monaco) monaco.editor.setTheme(isDark ? 'vs-dark' : 'vs');
+
                     Object.values(this._editorInstances).forEach(inst => {
                         if (inst.type === 'vditor' && inst.core && typeof inst.core.setTheme === 'function') {
                             inst.core.setTheme(
@@ -61,12 +66,38 @@ window.AppWorkspace = {
                                 isDark ? 'dark' : 'light', 
                                 isDark ? 'native' : 'github'
                             );
+                        } else if (inst.type === 'luckysheet' && inst.iframe) {
+                            this._applyLuckysheetTheme(inst.iframe, isDark);
                         }
                     });
                 }
             });
         });
         this._themeObserver.observe(document.documentElement, { attributes: true });
+    },
+
+    _applyLuckysheetTheme: function(iframe, isDark) {
+        if (!iframe) return;
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) return;
+        
+        let styleEl = doc.getElementById('luckysheet-dark-theme');
+        if (isDark) {
+            if (!styleEl) {
+                styleEl = doc.createElement('style');
+                styleEl.id = 'luckysheet-dark-theme';
+                styleEl.innerHTML = `
+                    html { 
+                        filter: invert(0.9) hue-rotate(180deg); 
+                        background: #111; 
+                    }
+                    body { background: #fff; } 
+                `;
+                doc.head.appendChild(styleEl);
+            }
+        } else {
+            if (styleEl) styleEl.remove();
+        }
     },
 
     onActivate: function() { 
@@ -83,10 +114,9 @@ window.AppWorkspace = {
         if (menu) menu.style.display = 'none'; 
     },
 
-    // ⚡ 修改：在顶部工具栏注入宽窄屏切换按钮
     renderTopBar: function() {
         const actionsHTML = `
-            <button id="ws-md-width-btn" class="sys-btn ghost" onclick="AppWorkspace.toggleMdWidth()" style="display:none; position:relative;" title="切换宽/窄屏">
+            <button id="ws-md-width-btn" class="sys-btn ghost" onclick="AppWorkspace.toggleMdWidth()" style="display:none; position:relative;" title="${window.I18nManager ? I18nManager.t('app_workspace.toggle_width') : 'Toggle Width'}">
                 <span class="material-symbols-rounded" id="ws-md-width-icon">${this._isMdWideMode ? 'close_fullscreen' : 'open_in_full'}</span>
             </button>
             <button id="ws-sync-btn" class="sys-btn ghost" onclick="AppWorkspace.forceSyncCloud()" style="display:none; position:relative;">
@@ -96,50 +126,36 @@ window.AppWorkspace = {
             </button>
         `;
         document.getElementById('sys-app-actions').innerHTML = actionsHTML;
-        I18nManager.translateDOM(document.getElementById('sys-app-actions'));
+        if (window.I18nManager) I18nManager.translateDOM(document.getElementById('sys-app-actions'));
         
-        // 渲染时立即同步一次按钮状态
         this.updateTopBarActions();
     },
 
-    // ⚡ 新增：处理宽窄屏切换动作
     toggleMdWidth: function() {
         this._isMdWideMode = !this._isMdWideMode;
-        localStorage.setItem('ws_md_wide', this._isMdWideMode); // 持久化记忆
-        
+        localStorage.setItem('ws_md_wide', this._isMdWideMode); 
         this.updateTopBarActions();
     },
 
-    // ⚡ 新增：智能显隐顶部按钮，并动态注入 CSS 类
     updateTopBarActions: function() {
         const mdBtn = document.getElementById('ws-md-width-btn');
         const icon = document.getElementById('ws-md-width-icon');
         const layout = document.getElementById('ws-layout');
         
-        // 动态给主布局加上或移除宽屏 class
         if (layout) {
             if (this._isMdWideMode) layout.classList.add('is-md-wide');
             else layout.classList.remove('is-md-wide');
         }
 
-        // 切换图标
-        if (icon) {
-            icon.innerText = this._isMdWideMode ? 'close_fullscreen' : 'open_in_full';
-        }
+        if (icon) icon.innerText = this._isMdWideMode ? 'close_fullscreen' : 'open_in_full';
 
         if (!mdBtn) return;
-
-        // 如果没有打开任何文件，隐藏按钮
-        if (!this._activeId) {
-            mdBtn.style.display = 'none';
-            return;
-        }
+        if (!this._activeId) { mdBtn.style.display = 'none'; return; }
 
         const filelist = SystemAPI.getFileList('app_workspace');
         const meta = filelist[this._activeId];
         if (meta) {
             const lang = this._getLanguage(meta.name);
-            // 只有当前文件是 Markdown，才显示切换按钮！
             mdBtn.style.display = (lang === 'markdown') ? 'inline-flex' : 'none';
         } else {
             mdBtn.style.display = 'none';
@@ -147,7 +163,7 @@ window.AppWorkspace = {
     },
 
     unmount: function(container) {
-        if (this._globalClickHandler) window.removeEventListener('click', this._globalClickHandler);
+        if (this._globalClickHandler) window.removeEventListener('mousedown', this._globalClickHandler);
         if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
         if (this._themeObserver) this._themeObserver.disconnect();
         
@@ -159,6 +175,7 @@ window.AppWorkspace = {
             if (inst.type === 'monaco' && typeof inst.core.dispose === 'function') inst.core.dispose();
             if (inst.type === 'vditor' && typeof inst.core.destroy === 'function') inst.core.destroy();
         });
+
         this._editorInstances = {};
         container.innerHTML = '';
     },
@@ -184,15 +201,13 @@ window.AppWorkspace = {
                 <div class="ws-sidebar">
                     <div class="ws-sidebar-toolbar">
                         <div style="display: flex; gap: 4px;">
-                            <button class="ws-toolbar-btn" id="btn-new-file" onclick="AppWorkspace.openAddFileModal()" title="新建文件"><span class="material-symbols-rounded">post_add</span></button>
-                            <button class="ws-toolbar-btn" id="btn-new-folder" onclick="AppWorkspace.openAddFolderModal()" title="新建文件夹"><span class="material-symbols-rounded">create_new_folder</span></button>
-                            <button class="ws-toolbar-btn" id="btn-import" onclick="AppWorkspace.handleImportFolder()" title="导入文件夹"><span class="material-symbols-rounded">drive_folder_upload</span></button>
+                            <button class="ws-toolbar-btn" id="btn-new-file" onclick="AppWorkspace.openAddFileModal()" title="${window.I18nManager ? I18nManager.t('app_workspace.new_note') : 'New File'}"><span class="material-symbols-rounded">post_add</span></button>
+                            <button class="ws-toolbar-btn" id="btn-new-folder" onclick="AppWorkspace.openAddFolderModal()" title="${window.I18nManager ? I18nManager.t('app_workspace.new_folder') : 'New Folder'}"><span class="material-symbols-rounded">create_new_folder</span></button>
                         </div>
                         <div style="display: flex; gap: 4px;">
-                            <button class="ws-toolbar-btn" id="btn-export" onclick="AppWorkspace.handleExport()" title="导出到本地"><span class="material-symbols-rounded">download</span></button>
-                            <button class="ws-toolbar-btn" id="btn-move" onclick="AppWorkspace.openMoveModal()" title="移动"><span class="material-symbols-rounded">drive_file_move</span></button>
-                            <button class="ws-toolbar-btn" id="btn-rename" onclick="AppWorkspace.openRenameModal()" title="重命名"><span class="material-symbols-rounded">edit_square</span></button>
-                            <button class="ws-toolbar-btn danger" id="btn-delete" onclick="AppWorkspace.handleHeaderDelete()" title="删除"><span class="material-symbols-rounded">delete</span></button>
+                            <button class="ws-toolbar-btn" id="btn-move" onclick="AppWorkspace.openMoveModal()" title="${window.I18nManager ? I18nManager.t('app_workspace.move') : 'Move'}"><span class="material-symbols-rounded">drive_file_move</span></button>
+                            <button class="ws-toolbar-btn" id="btn-rename" onclick="AppWorkspace.openRenameModal()" title="${window.I18nManager ? I18nManager.t('app_workspace.rename') : 'Rename'}"><span class="material-symbols-rounded">edit_square</span></button>
+                            <button class="ws-toolbar-btn danger" id="btn-delete" onclick="AppWorkspace.handleHeaderDelete()" title="${window.I18nManager ? I18nManager.t('app_workspace.delete') : 'Delete'}"><span class="material-symbols-rounded">delete</span></button>
                         </div>
                     </div>
                     <div class="ws-tree-container" id="ws-tree-container" onclick="AppWorkspace.selectNode(event, 'directory', null)" oncontextmenu="AppWorkspace.showContextMenu(event, 'directory', null)"></div>
@@ -228,8 +243,8 @@ window.AppWorkspace = {
         const modalsHTML = `
             <div id="ws-context-menu" class="ws-context-menu" oncontextmenu="event.preventDefault()"></div>
 
-            <div id="ws-add-folder-modal" class="sys-modal-overlay" style="display:none;" onclick="AppWorkspace.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="ws-add-folder-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppWorkspace.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_workspace.new_folder">新建文件夹</h3>
                     <label data-i18n="app_workspace.folder_name" style="margin-top: 8px;">名称</label>
                     <input type="text" id="ws-new-folder-input" class="sys-input" placeholder="..." autocomplete="off">
@@ -240,14 +255,15 @@ window.AppWorkspace = {
                 </div>
             </div>
 
-            <div id="ws-add-file-modal" class="sys-modal-overlay" style="display:none;" onclick="AppWorkspace.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="ws-add-file-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppWorkspace.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_workspace.new_note">新建文件</h3>
                     <label data-i18n="app_workspace.file_name" style="margin-top: 8px;">名称</label>
                     <div style="display:flex; gap:8px;">
                         <input type="text" id="ws-new-file-name" class="sys-input" style="flex:1; margin-bottom:0;" autocomplete="off">
-                        <select id="ws-new-file-ext" class="sys-input" style="width: 95px; margin-bottom:0; padding: 16px 12px;">
+                        <select id="ws-new-file-ext" class="sys-input" style="width: 120px; margin-bottom:0; padding: 16px 12px;">
                             <option value=".md">.md</option>
+                            <option value=".xlsx">.xlsx</option>
                             <option value=".js">.js</option>
                             <option value=".cpp">.cpp</option>
                             <option value=".c">.c</option>
@@ -256,7 +272,7 @@ window.AppWorkspace = {
                             <option value=".css">.css</option>
                             <option value=".html">.html</option>
                             <option value=".txt">.txt</option>
-                            <option value="">(无)</option>
+                            <option value="" data-i18n="app_workspace.no_ext">(无)</option>
                         </select>
                     </div>
                     <div class="modal-actions" style="margin-top: 24px;">
@@ -266,8 +282,8 @@ window.AppWorkspace = {
                 </div>
             </div>
 
-            <div id="ws-rename-modal" class="sys-modal-overlay" style="display:none;" onclick="AppWorkspace.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="ws-rename-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppWorkspace.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_workspace.rename">重命名</h3>
                     <label data-i18n="app_workspace.new_name" style="margin-top: 8px;">新名称</label>
                     <input type="text" id="ws-rename-input" class="sys-input" autocomplete="off">
@@ -278,8 +294,8 @@ window.AppWorkspace = {
                 </div>
             </div>
 
-            <div id="ws-move-modal" class="sys-modal-overlay" style="display:none;" onclick="AppWorkspace.closeAllModals(event)">
-                <div class="sys-modal" onclick="event.stopPropagation()">
+            <div id="ws-move-modal" class="sys-modal-overlay" style="display:none;" onmousedown="if(event.target===this) AppWorkspace.closeAllModals()">
+                <div class="sys-modal">
                     <h3 data-i18n="app_workspace.move">移动到</h3>
                     <label data-i18n="app_workspace.target_folder" style="margin-top: 8px;">选择目标目录</label>
                     <select id="ws-move-target" class="sys-input" style="padding: 12px; margin-bottom: 0;"></select>
@@ -290,14 +306,17 @@ window.AppWorkspace = {
                 </div>
             </div>
 
-            <div id="ws-bottom-sheet-modal" class="ws-bottom-sheet-overlay" onclick="AppWorkspace.closeAllModals(event)">
-                <div class="ws-bottom-sheet" onclick="event.stopPropagation()">
+            <div id="ws-bottom-sheet-modal" class="ws-bottom-sheet-overlay" onmousedown="if(event.target===this) AppWorkspace.closeAllModals()">
+                <div class="ws-bottom-sheet">
                     <div id="ws-sheet-title" class="ws-bottom-sheet-title"></div>
                     <button id="ws-sheet-open" class="ws-sheet-btn primary" onclick="AppWorkspace.openFileFromMobile()"><span class="material-symbols-rounded">menu_open</span><span data-i18n="app_workspace.open_file"></span></button>
                     <button id="ws-sheet-new-file" class="ws-sheet-btn" onclick="AppWorkspace.openAddFileModal()"><span class="material-symbols-rounded">post_add</span><span data-i18n="app_workspace.new_note"></span></button>
                     <button id="ws-sheet-new-folder" class="ws-sheet-btn" onclick="AppWorkspace.openAddFolderModal()"><span class="material-symbols-rounded">create_new_folder</span><span data-i18n="app_workspace.new_folder"></span></button>
-                    <button id="ws-sheet-import" class="ws-sheet-btn" onclick="AppWorkspace.handleImportFolder()"><span class="material-symbols-rounded">drive_folder_upload</span><span data-i18n="app_workspace.import"></span></button>
+                    
+                    <button id="ws-sheet-import-file" class="ws-sheet-btn" onclick="AppWorkspace.handleImportFile()"><span class="material-symbols-rounded">upload_file</span><span data-i18n="app_workspace.import_file"></span></button>
+                    <button id="ws-sheet-import-folder" class="ws-sheet-btn" onclick="AppWorkspace.handleImportFolder()"><span class="material-symbols-rounded">drive_folder_upload</span><span data-i18n="app_workspace.import_folder"></span></button>
                     <button id="ws-sheet-export" class="ws-sheet-btn" onclick="AppWorkspace.handleExport()"><span class="material-symbols-rounded">download</span><span data-i18n="app_workspace.export"></span></button>
+                    
                     <button id="ws-sheet-move" class="ws-sheet-btn" onclick="AppWorkspace.openMoveModal()"><span class="material-symbols-rounded">drive_file_move</span><span data-i18n="app_workspace.move"></span></button>
                     <button id="ws-sheet-rename" class="ws-sheet-btn" onclick="AppWorkspace.openRenameModal()"><span class="material-symbols-rounded">edit_square</span><span data-i18n="app_workspace.rename"></span></button>
                     <button id="ws-sheet-delete" class="ws-sheet-btn danger" onclick="AppWorkspace.handleHeaderDelete()"><span class="material-symbols-rounded">delete</span><span data-i18n="app_workspace.delete"></span></button>
@@ -305,12 +324,14 @@ window.AppWorkspace = {
             </div>
         `;
         document.body.insertAdjacentHTML('beforeend', modalsHTML);
-        I18nManager.translateDOM(this._container);
-        I18nManager.translateDOM(document.getElementById('ws-add-folder-modal'));
-        I18nManager.translateDOM(document.getElementById('ws-add-file-modal'));
-        I18nManager.translateDOM(document.getElementById('ws-rename-modal'));
-        I18nManager.translateDOM(document.getElementById('ws-move-modal'));
-        I18nManager.translateDOM(document.getElementById('ws-bottom-sheet-modal'));
+        if (window.I18nManager) {
+            I18nManager.translateDOM(this._container);
+            I18nManager.translateDOM(document.getElementById('ws-add-folder-modal'));
+            I18nManager.translateDOM(document.getElementById('ws-add-file-modal'));
+            I18nManager.translateDOM(document.getElementById('ws-rename-modal'));
+            I18nManager.translateDOM(document.getElementById('ws-move-modal'));
+            I18nManager.translateDOM(document.getElementById('ws-bottom-sheet-modal'));
+        }
 
         this.updateToolbarState();
     },
@@ -318,7 +339,7 @@ window.AppWorkspace = {
     showContextMenu: function(e, type, val) {
         e.preventDefault(); e.stopPropagation();
 
-        if (type === 'directory') this.clickFolder(null, val);
+        if (type === 'directory') this.clickFolder(null, val, true);
         else this.selectNode(null, type, val);
 
         const menu = document.getElementById('ws-context-menu');
@@ -331,7 +352,8 @@ window.AppWorkspace = {
             html += `<div class="ws-context-menu-item" onclick="AppWorkspace.openAddFileModal()"><span class="material-symbols-rounded">post_add</span><span data-i18n="app_workspace.new_note"></span></div>`;
             html += `<div class="ws-context-menu-item" onclick="AppWorkspace.openAddFolderModal()"><span class="material-symbols-rounded">create_new_folder</span><span data-i18n="app_workspace.new_folder"></span></div>`;
             html += `<div class="ws-context-menu-divider"></div>`;
-            html += `<div class="ws-context-menu-item" onclick="AppWorkspace.handleImportFolder()"><span class="material-symbols-rounded">drive_folder_upload</span><span data-i18n="app_workspace.import"></span></div>`;
+            html += `<div class="ws-context-menu-item" onclick="AppWorkspace.handleImportFile()"><span class="material-symbols-rounded">upload_file</span><span data-i18n="app_workspace.import_file"></span></div>`;
+            html += `<div class="ws-context-menu-item" onclick="AppWorkspace.handleImportFolder()"><span class="material-symbols-rounded">drive_folder_upload</span><span data-i18n="app_workspace.import_folder"></span></div>`;
             html += `<div class="ws-context-menu-item" onclick="AppWorkspace.handleExport()"><span class="material-symbols-rounded">download</span><span data-i18n="app_workspace.export"></span></div>`;
             
             if (!isRoot) {
@@ -351,7 +373,7 @@ window.AppWorkspace = {
         }
 
         menu.innerHTML = html;
-        I18nManager.translateDOM(menu);
+        if (window.I18nManager) I18nManager.translateDOM(menu);
         menu.style.display = 'flex';
 
         let x = e.clientX; let y = e.clientY;
@@ -396,7 +418,7 @@ window.AppWorkspace = {
         if (!filelist[fileId]) return 'Deleted';
         let path = []; let curr = fileId;
         while (curr && filelist[curr]) {
-            path.unshift(this.escape(filelist[curr].name) || I18nManager.t('app_workspace.untitled'));
+            path.unshift(this.escape(filelist[curr].name) || (window.I18nManager ? I18nManager.t('app_workspace.untitled') : 'Untitled'));
             curr = filelist[curr].parentid;
         }
         return path.join(' / ');
@@ -404,7 +426,7 @@ window.AppWorkspace = {
 
     buildTreeData: function() {
         const filelist = SystemAPI.getFileList('app_workspace');
-        const tree = { id: null, name: I18nManager.t('app_workspace.driver_root') || '/', type: 'directory', children: [] };
+        const tree = { id: null, name: (window.I18nManager ? I18nManager.t('app_workspace.driver_root') : '/'), type: 'directory', children: [] };
         const nodeMap = { null: tree };
 
         for (let id in filelist) {
@@ -458,25 +480,27 @@ window.AppWorkspace = {
             }
         } else {
             const isDirty = this._cloudDirtyList.includes(node.id);
+            const iconName = this._getLanguage(node.name) === 'luckysheet' ? 'table_chart' : 'description';
+            const untitledText = window.I18nManager ? I18nManager.t('app_workspace.untitled') : 'Untitled';
             html += `
-                <div class="ws-tree-item file ${isSelected ? 'active' : ''}" style="padding-left: ${indent}px;" onclick="AppWorkspace.selectNode(event, 'text', '${node.id}')" oncontextmenu="AppWorkspace.showContextMenu(event, 'text', '${node.id}')">
+                <div class="ws-tree-item file ${isSelected ? 'active' : ''}" style="padding-left: ${indent}px;" onclick="AppWorkspace.selectNode(event, 'text', '${node.id}')" ondblclick="AppWorkspace.openFile('${node.id}')" oncontextmenu="AppWorkspace.showContextMenu(event, 'text', '${node.id}')">
                     <span class="ws-tree-chevron-placeholder"></span>
-                    <span class="material-symbols-rounded ws-tree-icon">description</span>
-                    <span class="ws-tree-name">${this.escape(node.name) || I18nManager.t('app_workspace.untitled')}${isDirty ? '<span class="ws-dirty-dot"></span>' : ''}</span>
+                    <span class="material-symbols-rounded ws-tree-icon">${iconName}</span>
+                    <span class="ws-tree-name">${this.escape(node.name) || untitledText}${isDirty ? '<span class="ws-dirty-dot"></span>' : ''}</span>
                 </div>
             `;
         }
         return html;
     },
 
-    clickFolder: function(e, folderId) {
+    clickFolder: function(e, folderId, isRightClick = false) {
         if (e) e.stopPropagation();
         const contextMenu = document.getElementById('ws-context-menu');
         if (contextMenu) contextMenu.style.display = 'none';
 
         this._treeSelection = { type: 'directory', val: folderId };
         
-        if (folderId !== null) {
+        if (!isRightClick && folderId !== null) {
             if (this._expandedDirs.has(folderId)) this._expandedDirs.delete(folderId);
             else this._expandedDirs.add(folderId);
         }
@@ -506,7 +530,9 @@ window.AppWorkspace = {
         if (!tabsBar || !dropdownMenu) return;
         
         if (this._openTabs.length === 0) {
-            tabsBar.innerHTML = ''; dropdownMenu.innerHTML = `<div style="padding: 12px 20px; color: var(--sys-text-muted); font-size: 0.85rem;">No open files</div>`; return;
+            tabsBar.innerHTML = ''; dropdownMenu.innerHTML = `<div style="padding: 12px 20px; color: var(--sys-text-muted); font-size: 0.85rem;" data-i18n="app_workspace.no_notes">No open files</div>`; 
+            if (window.I18nManager) I18nManager.translateDOM(dropdownMenu);
+            return;
         }
 
         const filelist = SystemAPI.getFileList('app_workspace');
@@ -516,17 +542,18 @@ window.AppWorkspace = {
             const title = meta ? this._getFullPath(fileId) : 'Deleted';
             const isDirty = this._cloudDirtyList.includes(fileId);
             const isActive = this._activeId === fileId;
+            const iconName = meta && this._getLanguage(meta.name) === 'luckysheet' ? 'table_chart' : 'description';
             
             tabsHtml += `
                 <div class="ws-tab-item ${isActive ? 'active' : ''}" onclick="AppWorkspace.clickTab('${fileId}')" id="tab-${fileId}" title="${title}">
-                    <span class="material-symbols-rounded" style="font-size:1rem; opacity:0.8;">description</span>
+                    <span class="material-symbols-rounded" style="font-size:1rem; opacity:0.8;">${iconName}</span>
                     <span class="ws-tab-name">${title}${isDirty ? '<span class="ws-dirty-dot" style="margin-left:4px;"></span>' : ''}</span>
                     <span class="material-symbols-rounded ws-tab-close" onclick="AppWorkspace.closeTab(event, '${fileId}')">close</span>
                 </div>
             `;
             dropHtml += `
                 <div class="ws-tabs-dropdown-item ${isActive ? 'active' : ''}" onclick="AppWorkspace.clickTab('${fileId}')">
-                    <span class="material-symbols-rounded" style="font-size:1.1rem;">description</span>
+                    <span class="material-symbols-rounded" style="font-size:1.1rem;">${iconName}</span>
                     <span class="ws-tab-name">${title}${isDirty ? '<span class="ws-dirty-dot" style="margin-left:4px;"></span>' : ''}</span>
                 </div>
             `;
@@ -574,6 +601,60 @@ window.AppWorkspace = {
             inst._savedViewState = inst.core.saveViewState();
         }
     },
+
+    // 防抖保存，统一打包回 Base64 二进制 (深入 Iframe 环境提取数据)
+    _triggerLuckysheetSave: function(fileId) {
+        const inst = this._editorInstances[fileId];
+        if (!inst) return;
+        
+        clearTimeout(inst._saveTimer);
+        inst._saveTimer = setTimeout(async () => {
+            if (inst.type === 'luckysheet' && inst.iframe && inst.iframe.contentWindow.luckysheet) {
+                const allData = inst.iframe.contentWindow.luckysheet.getAllSheets();
+                try {
+                    const base64Data = await this._exportXlsxToBase64(allData);
+                    await SystemAPI.writeFile('app_workspace', inst.id, base64Data);
+                } catch (err) {
+                    console.error('保存 XLSX 失败:', err);
+                }
+                
+                this.updateDirtyState();
+                this.renderTabs(); this.renderTree(); this.updateSyncBadge();
+            }
+        }, 2000); 
+    },
+
+    _exportXlsxToBase64: async function(luckysheetData) {
+        if (!window.ExcelJS) throw new Error("缺少 ExcelJS 依赖");
+        
+        const workbook = new ExcelJS.Workbook();
+        
+        luckysheetData.forEach((sheet) => {
+            if (!sheet.data || sheet.data.length === 0) return;
+            const worksheet = workbook.addWorksheet(sheet.name);
+            
+            sheet.data.forEach((row, rowIndex) => {
+                if (!row) return;
+                row.forEach((cell, colIndex) => {
+                    if (!cell) return;
+                    let val = cell.v !== undefined ? cell.v : cell.m;
+                    if (val !== undefined && val !== null) {
+                        worksheet.getCell(rowIndex + 1, colIndex + 1).value = val;
+                    }
+                });
+            });
+        });
+        
+        const buffer = await workbook.xlsx.writeBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        
+        return `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${window.btoa(binary)}`;
+    },
     
     _getLanguage: function(fileName) {
         if (!fileName) return 'plaintext';
@@ -581,7 +662,8 @@ window.AppWorkspace = {
         const map = {
             'js': 'javascript', 'json': 'json', 'md': 'markdown', 'html': 'html',
             'css': 'css', 'cpp': 'cpp', 'c': 'c', 'py': 'python', 'java': 'java',
-            'ts': 'typescript', 'txt': 'plaintext', 'xml': 'xml', 'yaml': 'yaml', 'sql': 'sql'
+            'ts': 'typescript', 'txt': 'plaintext', 'xml': 'xml', 'yaml': 'yaml', 'sql': 'sql',
+            'luckysheet': 'luckysheet', 'xlsx': 'luckysheet', 'csv': 'luckysheet', 'xls': 'luckysheet'
         };
         return map[ext] || 'plaintext';
     },
@@ -591,7 +673,7 @@ window.AppWorkspace = {
             document.getElementById('ws-editor').classList.remove('active');
             document.getElementById('ws-empty').style.display = 'flex';
             this.renderPathBar();
-            this.updateTopBarActions(); // ⚡ 更新按钮状态
+            this.updateTopBarActions(); 
             return;
         }
 
@@ -611,12 +693,11 @@ window.AppWorkspace = {
         });
 
         let inst = this._editorInstances[this._activeId];
+        const fileMeta = filelist[this._activeId];
+        const lang = this._getLanguage(fileMeta.name);
         
         if (!inst) {
-            const content = await SystemAPI.readFile('app_workspace', this._activeId);
-            const strContent = content || "";
-            const meta = filelist[this._activeId];
-            const lang = this._getLanguage(meta.name);
+            const strContent = (await SystemAPI.readFile('app_workspace', this._activeId)) || "";
             const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
 
             const wrapper = document.createElement('div');
@@ -629,30 +710,96 @@ window.AppWorkspace = {
             wrapper.id = `ws-wrapper-${this._activeId}`;
             container.appendChild(wrapper);
             
-            if (lang === 'markdown') {
-                await SystemCore.loadVditor(); 
+            if (lang === 'luckysheet') {
+                const iframe = document.createElement('iframe');
+                iframe.id = `luckysheet-host-${this._activeId}`;
+                iframe.style.margin = '0px';
+                iframe.style.padding = '0px';
+                iframe.style.position = 'absolute';
+                iframe.style.width = '100%'; 
+                iframe.style.height = '100%';
+                iframe.style.left = '0px';
+                iframe.style.top = '0px';
+                iframe.style.border = 'none';
+                iframe.style.backgroundColor = '#ffffff'; 
+                wrapper.appendChild(iframe);
                 
+                inst = { id: this._activeId, type: 'luckysheet', wrapper, iframe };
+
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                doc.open();
+                doc.write(`
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="utf-8">
+                        <link rel="stylesheet" href="libs/luckysheet/plugins/css/pluginsCss.css" />
+                        <link rel="stylesheet" href="libs/luckysheet/plugins/plugins.css" />
+                        <link rel="stylesheet" href="libs/luckysheet/css/luckysheet.css" />
+                        <link rel="stylesheet" href="libs/luckysheet/assets/iconfont/iconfont.css" />
+                        <style>
+                            body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+                            #luckysheet { margin: 0; padding: 0; position: absolute; width: 100%; height: 100%; left: 0; top: 0; }
+                        </style>
+                    </head>
+                    <body>
+                        <div id="luckysheet"></div>
+                        <script src="libs/luckysheet/plugins/js/plugin.js"><\/script>
+                        <script src="libs/luckysheet/luckysheet.umd.js"><\/script>
+                    </body>
+                    </html>
+                `);
+                doc.close();
+
+                // 等待 Iframe 内核加载完毕后挂载数据
+                iframe.onload = async () => {
+                    const win = iframe.contentWindow;
+                    if (!win || !win.luckysheet) return;
+
+                    // 初始化时，立刻同步当前的系统 OS 主题状态给 Iframe
+                    this._applyLuckysheetTheme(iframe, document.documentElement.getAttribute('data-theme') === 'dark');
+
+                    const content = await SystemAPI.readFile('app_workspace', inst.id);
+                    if (!window.LuckyExcel || !window.ExcelJS) {
+                        if (window.SystemUI) SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.err_no_excel_lib') : 'Missing Excel libraries');
+                        return;
+                    }
+
+                    const initSheet = (sheetData) => {
+                        win.luckysheet.create({
+                            container: 'luckysheet', 
+                            showinfobar: false, // 去掉绿色的头部横条
+                            lang: (window.I18nManager && I18nManager.currentLang === 'zh') ? 'zh' : 'en',
+                            data: sheetData,
+                            hook: {
+                                updated: () => this._triggerLuckysheetSave(inst.id)
+                            }
+                        });
+                    };
+
+                    if (content && content.startsWith('data:')) {
+                        const res = await fetch(content);
+                        const blob = await res.blob();
+                        const file = new File([blob], fileMeta.name);
+                        
+                        window.LuckyExcel.transformExcelToLucky(file, (exportJson) => {
+                            if(!exportJson.sheets || exportJson.sheets.length === 0) return;
+                            initSheet(exportJson.sheets);
+                        });
+                    } else {
+                        initSheet([{ name: "Sheet1", status: 1 }]);
+                    }
+                };
+                
+            } else if (lang === 'markdown') {
+                await SystemCore.loadVditor(); 
                 const vContainer = document.createElement('div');
                 vContainer.id = `vditor-host-${this._activeId}`;
                 wrapper.appendChild(vContainer);
                 
                 const vditorCore = await new Promise(resolve => {
                     const v = new window.Vditor(vContainer.id, {
-                        value: strContent,
-                        mode: 'ir', 
-                        height: '100%', 
-                        width: '100%',
-                        cache: { enable: false }, 
-                        cdn: 'libs/vditor', 
-                        theme: isDark ? 'dark' : 'classic',
-                        icon: 'material',
-                        outline: { enable: false, position: 'left' }, 
-                        
-                        preview: {
-                            theme: { current: isDark ? 'dark' : 'light' },
-                            hljs: { style: isDark ? 'native' : 'github' }
-                        },
-
+                        value: strContent, mode: 'ir', height: '100%', width: '100%', cache: { enable: false }, cdn: 'libs/vditor', theme: isDark ? 'dark' : 'classic', icon: 'material', outline: { enable: false, position: 'left' }, preview: { theme: { current: isDark ? 'dark' : 'light' }, hljs: { style: isDark ? 'native' : 'github' } },
                         input: (val) => {
                             clearTimeout(v._saveTimer);
                             v._saveTimer = setTimeout(async () => {
@@ -671,17 +818,7 @@ window.AppWorkspace = {
                 await SystemCore.loadMonaco(); 
                 
                 const monacoCore = monaco.editor.create(wrapper, {
-                    value: strContent,
-                    language: lang,
-                    theme: isDark ? 'vs-dark' : 'vs',
-                    automaticLayout: true,
-                    wordWrap: lang === 'plaintext' ? 'on' : 'off',
-                    minimap: { enabled: false }, 
-                    fontSize: 14,
-                    fontFamily: "'Consolas', 'Courier New', monospace",
-                    scrollBeyondLastLine: false,
-                    roundedSelection: false,
-                    padding: { top: 16 }
+                    value: strContent, language: lang, theme: isDark ? 'vs-dark' : 'vs', automaticLayout: true, wordWrap: lang === 'plaintext' ? 'on' : 'off', minimap: { enabled: false }, fontSize: 14, fontFamily: "'Consolas', 'Courier New', monospace", scrollBeyondLastLine: false, roundedSelection: false, padding: { top: 16 }
                 });
 
                 monacoCore.onDidChangeModelContent(() => {
@@ -695,23 +832,23 @@ window.AppWorkspace = {
                 
                 inst = { id: this._activeId, type: 'monaco', core: monacoCore, wrapper };
             }
-            
             this._editorInstances[this._activeId] = inst;
         }
         
         if (inst.wrapper) inst.wrapper.style.display = 'block';
-        
-        setTimeout(() => { 
-            if (inst.type === 'monaco' && inst.core) {
-                inst.core.layout(); 
-                if (inst._savedViewState) inst.core.restoreViewState(inst._savedViewState);
-                inst.core.focus();
-            } else if (inst.type === 'vditor' && inst.core) {
-                inst.core.focus();
-            }
-        }, 50);
 
-        // ⚡ 每次渲染编辑器时，更新顶部按钮的显隐状态
+        if (inst.type !== 'luckysheet') {
+            setTimeout(() => { 
+                if (inst.type === 'monaco' && inst.core) {
+                    inst.core.layout(); 
+                    if (inst._savedViewState) inst.core.restoreViewState(inst._savedViewState);
+                    inst.core.focus();
+                } else if (inst.type === 'vditor' && inst.core) {
+                    inst.core.focus();
+                }
+            }, 50);
+        }
+
         this.updateTopBarActions();
     },
 
@@ -721,35 +858,33 @@ window.AppWorkspace = {
         const contextMenu = document.getElementById('ws-context-menu');
         if (contextMenu) contextMenu.style.display = 'none';
 
-        if (type === 'text' && this._activeId !== val) this.saveCurrentEditorState();
-
         this._treeSelection = { type, val };
         const isMobile = window.innerWidth <= 768;
 
         if (type === 'directory') { 
-            if (val === null) {
-            } else {
-                if(val !== null) this._expandedDirs.add(val); 
-            }
+            if (val !== null) this._expandedDirs.add(val); 
             if (isMobile) this.showMobileMenu(type, val); 
         } 
         else if (type === 'text') {
             if (isMobile) {
                 this.showMobileMenu(type, val);
-            } else {
-                if (!this._openTabs.includes(val)) this._openTabs.push(val);
-                this._activeId = val;
-                document.getElementById('ws-layout').classList.add('is-editing'); 
-                this.renderTabs(); this.renderEditor();
             }
         }
         this.renderTree(); this.updateToolbarState();
     },
 
+    openFile: function(fileId) {
+        if (!this._openTabs.includes(fileId)) this._openTabs.push(fileId);
+        if (this._activeId !== fileId) this.saveCurrentEditorState();
+        this._activeId = fileId;
+        document.getElementById('ws-layout').classList.add('is-editing'); 
+        this.renderTabs(); this.renderEditor(); this.updateTopBarActions();
+    },
+
     showMobileMenu: function(type, val) {
         const modal = document.getElementById('ws-bottom-sheet-modal');
         const filelist = SystemAPI.getFileList('app_workspace');
-        const name = val === null ? (I18nManager.t('app_workspace.driver_root') || '/') : (filelist[val] ? filelist[val].name : 'Unknown');
+        const name = val === null ? (window.I18nManager ? I18nManager.t('app_workspace.driver_root') : '/') : (filelist[val] ? filelist[val].name : (window.I18nManager ? I18nManager.t('app_workspace.untitled') : 'Unknown'));
 
         document.getElementById('ws-sheet-title').innerText = name;
 
@@ -757,7 +892,8 @@ window.AppWorkspace = {
         
         document.getElementById('ws-sheet-new-file').style.display = 'flex';
         document.getElementById('ws-sheet-new-folder').style.display = 'flex';
-        document.getElementById('ws-sheet-import').style.display = 'flex';
+        document.getElementById('ws-sheet-import-file').style.display = 'flex';
+        document.getElementById('ws-sheet-import-folder').style.display = 'flex';
         document.getElementById('ws-sheet-export').style.display = 'flex';
         
         document.getElementById('ws-sheet-move').style.display = val !== null ? 'flex' : 'none';
@@ -770,10 +906,7 @@ window.AppWorkspace = {
     openFileFromMobile: function() {
         this.closeAllModals();
         const val = this._treeSelection.val;
-        if (!this._openTabs.includes(val)) this._openTabs.push(val);
-        this._activeId = val;
-        document.getElementById('ws-layout').classList.add('is-editing'); 
-        this.renderTabs(); this.renderEditor();
+        this.openFile(val);
     },
 
     clickTab: function(fileId) {
@@ -782,8 +915,7 @@ window.AppWorkspace = {
         if (this._activeId !== fileId) this.saveCurrentEditorState();
         
         this._activeId = fileId;
-        this._treeSelection = { type: 'text', val: fileId };
-        this.renderTabs(); this.renderTree(); this.renderEditor(); this.updateToolbarState();
+        this.renderTabs(); this.renderEditor(); this.updateTopBarActions();
     },
 
     closeTab: function(e, fileId) {
@@ -801,16 +933,12 @@ window.AppWorkspace = {
         if (this._activeId === fileId) {
             if (this._openTabs.length > 0) {
                 this._activeId = this._openTabs[this._openTabs.length - 1];
-                this._treeSelection = { type: 'text', val: this._activeId };
             } else {
                 this._activeId = null;
-                const filelist = SystemAPI.getFileList('app_workspace');
-                const meta = filelist[fileId];
-                this._treeSelection = { type: 'directory', val: meta ? meta.parentid : null };
             }
             this.renderEditor();
         }
-        this.renderTabs(); this.renderTree(); this.updateToolbarState();
+        this.renderTabs();
     },
 
     closeMobileEditor: function() {
@@ -839,13 +967,16 @@ window.AppWorkspace = {
             if (filelist[parentId]) parentId = filelist[parentId].parentid;
         }
 
-        if (this._isDuplicate(parentId, fullName)) return SystemUI.showToast(I18nManager.t('app_workspace.err_duplicate') || '同名文件已存在');
+        if (this._isDuplicate(parentId, fullName)) return SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.err_duplicate') : '同名文件已存在');
 
         const fileId = await SystemAPI.createFile('app_workspace', fullName, parentId, "");
         this.updateDirtyState();
         if(parentId) this._expandedDirs.add(parentId);
         
-        this.saveCurrentEditorState(); this.selectNode(null, 'text', fileId);
+        this.saveCurrentEditorState(); 
+        this.selectNode(null, 'text', fileId);
+        this.openFile(fileId); 
+        
         this.closeAllModals();
         document.getElementById('ws-new-file-name').value = '';
     },
@@ -868,7 +999,7 @@ window.AppWorkspace = {
         let name = document.getElementById('ws-new-folder-input').value.trim();
         if (!name) return;
         
-        if (this._isDuplicate(parentId, name)) return SystemUI.showToast(I18nManager.t('app_workspace.err_duplicate') || '同名文件夹已存在');
+        if (this._isDuplicate(parentId, name)) return SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.err_duplicate') : '同名文件夹已存在');
 
         const folderId = await SystemAPI.createDirectory('app_workspace', name, parentId);
         this.updateDirtyState();
@@ -881,11 +1012,11 @@ window.AppWorkspace = {
     openMoveModal: function() {
         this.closeAllModals();
         const sel = this._treeSelection;
-        if (!sel || sel.val === null) return SystemUI.showToast(I18nManager.t('app_workspace.cannot_move_root') || '不能移动根目录');
+        if (!sel || sel.val === null) return SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.cannot_move_root') : '不能移动根目录');
         
         const filelist = SystemAPI.getFileList('app_workspace');
         const selectEl = document.getElementById('ws-move-target');
-        selectEl.innerHTML = `<option value="null">/ (${I18nManager.t('app_workspace.driver_root') || 'Root'})</option>`;
+        selectEl.innerHTML = `<option value="null">/ (${window.I18nManager ? I18nManager.t('app_workspace.driver_root') : 'Root'})</option>`;
         
         const isDescendant = (childId, ancestorId) => {
             let curr = childId;
@@ -929,7 +1060,25 @@ window.AppWorkspace = {
             this.renderTabs();
             this.renderPathBar();
             this.closeAllModals();
-            SystemUI.showToast("移动成功");
+            if (window.SystemUI) SystemUI.showToast(window.I18nManager ? I18nManager.t('core.sync_success') : "Success");
+        }
+    },
+
+    handleImportFile: async function() {
+        this.closeAllModals();
+        
+        let parentId = this._treeSelection.val; 
+        if (this._treeSelection.type === 'text') {
+            const filelist = SystemAPI.getFileList('app_workspace');
+            if (filelist[parentId]) parentId = filelist[parentId].parentid;
+        }
+        
+        const success = await SystemAPI.importNode('app_workspace', parentId, 'file');
+        if (success) {
+            if (window.SystemUI) SystemUI.showToast(window.I18nManager ? I18nManager.t('core.sync_success') : "Imported successfully");
+            this.updateDirtyState();
+            if (parentId) this._expandedDirs.add(parentId);
+            this.renderTree();
         }
     },
 
@@ -944,7 +1093,7 @@ window.AppWorkspace = {
         
         const success = await SystemAPI.importNode('app_workspace', parentId, 'directory');
         if (success) {
-            SystemUI.showToast("文件夹导入成功");
+            if (window.SystemUI) SystemUI.showToast(window.I18nManager ? I18nManager.t('core.sync_success') : "Imported successfully");
             this.updateDirtyState();
             if (parentId) this._expandedDirs.add(parentId);
             this.renderTree();
@@ -955,7 +1104,7 @@ window.AppWorkspace = {
         this.closeAllModals();
         const success = await SystemAPI.exportNode('app_workspace', this._treeSelection.val);
         if (success) {
-            SystemUI.showToast("文件树导出成功");
+            if (window.SystemUI) SystemUI.showToast(window.I18nManager ? I18nManager.t('core.sync_success') : "Exported successfully");
         }
     },
 
@@ -981,7 +1130,7 @@ window.AppWorkspace = {
         const meta = filelist[sel.val];
         
         if (!meta || meta.name === newName) return this.closeAllModals();
-        if (this._isDuplicate(meta.parentid, newName, sel.val)) return SystemUI.showToast(I18nManager.t('app_workspace.err_duplicate') || '同名文件已存在');
+        if (this._isDuplicate(meta.parentid, newName, sel.val)) return SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.err_duplicate') : '同名文件已存在');
         
         SystemAPI.renameNode('app_workspace', sel.val, newName);
 
@@ -1001,9 +1150,9 @@ window.AppWorkspace = {
     handleHeaderDelete: function() {
         this.closeAllModals();
         const sel = this._treeSelection;
-        if (!sel || sel.val === null) return SystemUI.showToast(I18nManager.t('app_workspace.cannot_delete_root') || '不能删除根目录');
+        if (!sel || sel.val === null) return SystemUI.showToast(window.I18nManager ? I18nManager.t('app_workspace.cannot_delete_root') : '不能删除根目录');
         
-        const msg = sel.type === 'directory' ? (I18nManager.t('app_workspace.del_folder_confirm') || '确定删除文件夹吗？') : (I18nManager.t('app_workspace.delete_confirm') || '确定删除此文件吗？');
+        const msg = sel.type === 'directory' ? (window.I18nManager ? I18nManager.t('app_workspace.del_folder_confirm') : '确定删除文件夹吗？') : (window.I18nManager ? I18nManager.t('app_workspace.delete_confirm') : '确定删除此文件吗？');
         
         SystemUI.showConfirm(msg, () => {
             SystemAPI.deleteNode('app_workspace', sel.val);
@@ -1030,8 +1179,7 @@ window.AppWorkspace = {
         });
     },
 
-    closeAllModals: function(e) {
-        if (e && !e.target.id.includes('-modal') && e.target.tagName !== 'BUTTON') return;
+    closeAllModals: function() {
         ['ws-add-folder-modal', 'ws-add-file-modal', 'ws-rename-modal', 'ws-move-modal', 'ws-bottom-sheet-modal', 'ws-context-menu'].forEach(id => { 
             const el = document.getElementById(id); 
             if(el) el.style.display = 'none'; 

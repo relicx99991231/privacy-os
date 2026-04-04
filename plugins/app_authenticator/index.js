@@ -37,7 +37,12 @@ window.AppAuthenticator = {
         // 【修复】：全局收起下拉菜单由 click 改为 mousedown，防止拖拽松开时的误判
         this._globalClickHandler = (e) => {
             const pcMenu = document.getElementById('auth-pc-dropdown');
-            if (pcMenu && pcMenu.style.display === 'flex' && !e.target.closest('.auth-cat-more') && !e.target.closest('.auth-icon-btn')) {
+            // 增加了一个判断：如果是点击在菜单里面 (!e.target.closest('#auth-pc-dropdown'))，就不要关闭它
+            if (pcMenu && pcMenu.style.display === 'flex' && 
+                !e.target.closest('.auth-cat-more') && 
+                !e.target.closest('.auth-icon-btn') &&
+                !e.target.closest('#auth-pc-dropdown')
+            ) {
                 pcMenu.style.display = 'none';
             }
         };
